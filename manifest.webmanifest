@@ -1,0 +1,21 @@
+{
+  "name": "TripTap Admin",
+  "short_name": "TripTap",
+  "description": "ניהול מקומות, טיולים, מלונות והגדרות עבור TripTap",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e0c2b",
+  "theme_color": "#ff5d8f",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
