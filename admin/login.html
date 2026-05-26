@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TripTap Admin Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body class="login-body">
+    <main class="login-layout">
+        <section class="login-hero">
+            <p class="eyebrow">TripTap Admin</p>
+            <h1>כניסה לניהול המערכת</h1>
+            <p class="page-subtitle">הגישה לאדמין מתבצעת דרך חשבון Google בלבד. אחרי ההתחברות תוחזר אוטומטית לדף שביקשת.
+            </p>
+            <div class="login-metric-row">
+                <article class="login-metric-card">
+                    <strong>Google בלבד</strong>
+                    <span>אותו חשבון לכל גישת האדמין</span>
+                </article>
+                <article class="login-metric-card">
+                    <strong>TripInspo + TripTap</strong>
+                    <span>ניהול מקומות, קישורים וספריות תוכן במקום אחד</span>
+                </article>
+                <article class="login-metric-card">
+                    <strong>Firebase מאובטח</strong>
+                    <span>אותו backend ואותן הרשאות כמו באפליקציה</span>
+                </article>
+            </div>
+            <div class="login-badges">
+                <span><i data-lucide="shield-check"></i> Firebase Auth</span>
+                <span><i data-lucide="log-in"></i> Google Sign-In</span>
+                <span><i data-lucide="map"></i> OpenStreetMap</span>
+                <span><i data-lucide="database"></i> Firestore</span>
+            </div>
+            <div class="login-feature-list">
+                <div><i data-lucide="sparkles"></i><span>אותם prompts ומסלולי תוכן של מצב מתכנת</span></div>
+                <div><i data-lucide="copy-check"></i><span>ניקוי כפילויות דרך DeepSeek מאומת בשרת</span></div>
+                <div><i data-lucide="ticket"></i><span>שמירת קישורי הזמנה ישירות לספריית TripTap</span></div>
+            </div>
+        </section>
+
+        <section class="login-card">
+            <div class="login-card-header">
+                <span class="brand-mark">T</span>
+                <div>
+                    <strong>TripTap Admin</strong>
+                    <small>גישה למקומות, טיולים, מלונות והגדרות</small>
+                </div>
+            </div>
+
+            <button class="primary-action wide-action" type="button" id="googleSignInButton">
+                <i data-lucide="log-in"></i>
+                <span>התחברות עם Google</span>
+            </button>
+
+            <div class="login-note-card">
+                <i data-lucide="lock-keyhole"></i>
+                <div>
+                    <strong>גישה לאדמין</strong>
+                    <small>הכניסה נשענת על Firebase Authentication ועל הדומיין המורשה של הפרויקט.</small>
+                </div>
+            </div>
+
+            <div class="status-stack">
+                <p class="status-line" id="loginStatus"></p>
+                <p class="status-line subtle-line" id="loginHint">יש לוודא ש-Google Sign-In מופעל ב-Firebase
+                    Authentication עבור הפרויקט.</p>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script type="module" src="./login.js"></script>
+</body>
+
+</html>
