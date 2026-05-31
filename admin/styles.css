@@ -1939,6 +1939,15 @@ svg {
 
 .booking-links-input {
     min-height: 190px;
+    color: #fffdf8;
+    caret-color: #f5c453;
+    opacity: 1;
+    -webkit-text-fill-color: #fffdf8;
+}
+
+.booking-links-input::placeholder {
+    color: rgba(248, 244, 234, 0.66);
+    -webkit-text-fill-color: rgba(248, 244, 234, 0.66);
 }
 
 .booking-json-actions {

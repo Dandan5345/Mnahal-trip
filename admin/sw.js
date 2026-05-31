@@ -10,7 +10,7 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => { }));
   self.skipWaiting();
 });
 
@@ -30,7 +30,7 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res && res.status === 200 && res.type === "basic") {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => { });
           }
           return res;
         })
