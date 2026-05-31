@@ -1,4 +1,4 @@
-const CACHE = "triptap-v1";
+const CACHE = "triptap-v2";
 const ASSETS = [
   "./",
   "./index.html",
