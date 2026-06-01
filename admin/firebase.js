@@ -1,9 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
 import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-analytics.js";
 import {
+    initializeAppCheck,
     ReCaptchaV3Provider,
-    getToken,
-    initializeAppCheck
+    getToken as getAppCheckTokenResult
 } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app-check.js";
 import {
     browserLocalPersistence,
@@ -42,33 +42,38 @@ const firebaseConfig = {
     measurementId: "G-HL9S1WH2JY"
 };
 
-const APP_CHECK_SITE_KEY = "6LcXIQctAAAAAHsdHeGS1dsYFskibiuHZ7sXn_TX";
-
 const app = initializeApp(firebaseConfig);
+
+// --- Firebase App Check (reCAPTCHA v3) ---
+const APP_CHECK_SITE_KEY = "6LcXIQctAAAAAHsdHeGS1dsYFskibiuHZ7sXn_TX";
+const appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
+    isTokenAutoRefreshEnabled: true
+});
+
+// מחזיר את טוקן ה-App Check העדכני, או מחרוזת ריקה אם נכשל (לא מפיל את הבקשה).
+export async function getAppCheckToken() {
+    try {
+        const result = await getAppCheckTokenResult(appCheck, /* forceRefresh */ false);
+        return result?.token || "";
+    } catch (_) {
+        return "";
+    }
+}
+
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appCheckPromise = Promise.resolve()
-    .then(() => initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
-        isTokenAutoRefreshEnabled: true
-    }))
-    .catch((error) => {
-        console.error("Firebase App Check initialization failed", error);
-        return null;
-    });
 const analyticsPromise = isSupported().then((supported) => (supported ? getAnalytics(app) : null)).catch(() => null);
 const authReady = setPersistence(auth, browserLocalPersistence).catch(() => null);
 
 export const tripTapAdminFirebase = {
     app,
-    appCheckPromise,
+    appCheck,
+    getAppCheckToken,
     auth,
     db,
     analyticsPromise,
     authReady,
-    appCheckFns: {
-        getToken
-    },
     authFns: {
         GoogleAuthProvider,
         getRedirectResult,
