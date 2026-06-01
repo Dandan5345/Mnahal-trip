@@ -45,14 +45,22 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // --- Firebase App Check (reCAPTCHA v3) ---
+// אתחול עטוף ב-try/catch: כשל ב-App Check (דומיין לא רשום, localhost, חסימת רשת)
+// לא אמור לשבור את טעינת שאר Firebase או את הדף. האכיפה האמיתית בצד ה-Worker.
 const APP_CHECK_SITE_KEY = "6LcXIQctAAAAAHsdHeGS1dsYFskibiuHZ7sXn_TX";
-const appCheck = initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
-    isTokenAutoRefreshEnabled: true
-});
+let appCheck = null;
+try {
+    appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
+        isTokenAutoRefreshEnabled: true
+    });
+} catch (error) {
+    console.warn("App Check initialization failed; continuing without it.", error);
+}
 
-// מחזיר את טוקן ה-App Check העדכני, או מחרוזת ריקה אם נכשל (לא מפיל את הבקשה).
+// מחזיר את טוקן ה-App Check העדכני, או מחרוזת ריקה אם לא זמין (לא מפיל את הבקשה).
 export async function getAppCheckToken() {
+    if (!appCheck) return "";
     try {
         const result = await getAppCheckTokenResult(appCheck, /* forceRefresh */ false);
         return result?.token || "";
