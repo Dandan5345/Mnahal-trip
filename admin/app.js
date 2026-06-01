@@ -1,4 +1,5 @@
 import {
+  adminWorkerFetch,
   createAdminShell,
   attachSharedUi,
   resolveAdminView,
@@ -2118,12 +2119,10 @@ async function updateSelectedOpeningHours() {
 }
 
 async function requestOpeningHoursFix(places) {
-  const idToken = await state.user.getIdToken();
-  const response = await fetch(OPENING_HOURS_AI_ENDPOINT, {
+  const response = await adminWorkerFetch(state.user, OPENING_HOURS_AI_ENDPOINT, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
       feature: "admin_tool",
@@ -3588,12 +3587,10 @@ async function runAiDuplicateCheck() {
     renderDuplicateLivePanel();
     syncDuplicateAiControls();
     setStatus("duplicateStatus", `שולח בדיקת כפילויות ל-${aiModeSummary(state.duplicateAiModel, state.duplicateThinkingEnabled, state.duplicateReasoningEffort)}...`);
-    const idToken = await state.user.getIdToken();
-    const response = await fetch(endpoint, {
+    const response = await adminWorkerFetch(state.user, endpoint, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         feature: "admin_tool",
@@ -4770,15 +4767,13 @@ async function uploadBlobToR2PlaceImage(blob, sourceUrl, draft) {
   if (!state.user) throw new Error("Missing Firebase user for R2 upload");
   const contentType = blob.type || contentTypeFromUrl(sourceUrl) || "image/jpeg";
   const key = r2PlaceImageKey(draft, contentType, sourceUrl);
-  const idToken = await state.user.getIdToken(true);
-  const mintResponse = await fetch(`${WORKFLOW_URL}/r2-upload-url`, {
+  const mintResponse = await adminWorkerFetch(state.user, `${WORKFLOW_URL}/r2-upload-url`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ key, contentType, expiresInSeconds: 600 })
-  });
+  }, { refreshIdToken: true });
   if (!mintResponse.ok) throw new Error(`R2 upload URL ${mintResponse.status}: ${await mintResponse.text()}`);
   const mint = await mintResponse.json();
   if (!mint?.url) throw new Error("R2 upload URL response missing signed URL");
@@ -4797,16 +4792,14 @@ async function copyRemotePlaceImageToR2(sourceUrl, draft) {
   if (!state.user) throw new Error("Missing Firebase user for R2 upload");
   const contentType = contentTypeFromUrl(sourceUrl) || "image/jpeg";
   const key = r2PlaceImageKey(draft, contentType, sourceUrl);
-  const idToken = await state.user.getIdToken(true);
   try {
-    const response = await fetch(`${WORKFLOW_URL}/r2-copy-url`, {
+    const response = await adminWorkerFetch(state.user, `${WORKFLOW_URL}/r2-copy-url`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({ sourceUrl, key, contentType })
-    });
+    }, { refreshIdToken: true });
     if (!response.ok) return "";
     const payload = await response.json();
     return text(payload?.publicUrl);

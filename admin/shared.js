@@ -1,6 +1,7 @@
 import { tripTapAdminFirebase } from "./firebase.js";
 
 export const ADMIN_EMAIL = "doronenakache@gmail.com";
+const APP_CHECK_HEADER_NAME = "X-Firebase-AppCheck";
 
 const NAV_ITEMS = [
   {
@@ -249,14 +250,33 @@ export const ADMIN_WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron
 const ADMIN_R2_WORKFLOW_URL = ADMIN_WORKFLOW_URL;
 const ADMIN_R2_MAX_BYTES = 15 * 1024 * 1024;
 
-async function adminWorkerPost(user, path, body) {
+async function getAdminAppCheckToken() {
+  const appCheck = await tripTapAdminFirebase.appCheckPromise;
+  if (!appCheck) throw new Error("Firebase App Check is unavailable.");
+  const result = await tripTapAdminFirebase.appCheckFns.getToken(appCheck);
+  if (!result?.token) throw new Error("Firebase App Check token is unavailable.");
+  return result.token;
+}
+
+export async function adminWorkerFetch(user, input, init = {}, { refreshIdToken = false } = {}) {
   if (!user) throw new Error("Missing Firebase user for worker call");
-  const idToken = await user.getIdToken();
-  const response = await fetch(`${ADMIN_WORKFLOW_URL}${path}`, {
+  const [idToken, appCheckToken] = await Promise.all([
+    user.getIdToken(refreshIdToken),
+    getAdminAppCheckToken()
+  ]);
+  const headers = new Headers(init.headers || {});
+  if (!headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${idToken}`);
+  }
+  headers.set(APP_CHECK_HEADER_NAME, appCheckToken);
+  return fetch(input, { ...init, headers });
+}
+
+async function adminWorkerPost(user, path, body) {
+  const response = await adminWorkerFetch(user, `${ADMIN_WORKFLOW_URL}${path}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(body || {})
   });
@@ -337,19 +357,17 @@ export async function copyAdminRemoteImageToR2(user, sourceUrl, { folder, baseNa
   if (isAdminR2ImageUrl(normalizedUrl)) return normalizedUrl;
   if (!user) throw new Error("Missing Firebase user for R2 upload");
   const key = adminR2ImageKey({ folder, baseName, contentType, sourceUrl: normalizedUrl });
-  const idToken = await user.getIdToken(true);
-  const response = await fetch(`${ADMIN_R2_WORKFLOW_URL}/r2-copy-url`, {
+  const response = await adminWorkerFetch(user, `${ADMIN_R2_WORKFLOW_URL}/r2-copy-url`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
       sourceUrl: normalizedUrl,
       key,
       contentType: contentType || adminContentTypeFromUrl(normalizedUrl)
     })
-  });
+  }, { refreshIdToken: true });
   if (!response.ok) throw new Error(`R2 copy ${response.status}: ${await response.text()}`);
   const payload = await response.json().catch(() => null);
   return String(payload?.publicUrl || "").trim();
@@ -361,15 +379,13 @@ export async function uploadAdminImageFileToR2(user, file, { folder, baseName } 
   if (!user) throw new Error("Missing Firebase user for R2 upload");
   const contentType = file.type || adminContentTypeFromUrl(file.name) || "image/jpeg";
   const key = adminR2ImageKey({ folder, baseName: baseName || file.name, contentType, sourceUrl: file.name });
-  const idToken = await user.getIdToken(true);
-  const mintResponse = await fetch(`${ADMIN_R2_WORKFLOW_URL}/r2-upload-url`, {
+  const mintResponse = await adminWorkerFetch(user, `${ADMIN_R2_WORKFLOW_URL}/r2-upload-url`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ key, contentType, expiresInSeconds: 600 })
-  });
+  }, { refreshIdToken: true });
   if (!mintResponse.ok) throw new Error(`R2 upload URL ${mintResponse.status}: ${await mintResponse.text()}`);
   const mint = await mintResponse.json().catch(() => null);
   if (!mint?.url) throw new Error("R2 upload URL response missing signed URL");

@@ -1,6 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
 import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-analytics.js";
 import {
+    ReCaptchaV3Provider,
+    getToken,
+    initializeAppCheck
+} from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app-check.js";
+import {
     browserLocalPersistence,
     GoogleAuthProvider,
     getAuth,
@@ -37,18 +42,33 @@ const firebaseConfig = {
     measurementId: "G-HL9S1WH2JY"
 };
 
+const APP_CHECK_SITE_KEY = "6LcXIQctAAAAAHsdHeGS1dsYFskibiuHZ7sXn_TX";
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const appCheckPromise = Promise.resolve()
+    .then(() => initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(APP_CHECK_SITE_KEY),
+        isTokenAutoRefreshEnabled: true
+    }))
+    .catch((error) => {
+        console.error("Firebase App Check initialization failed", error);
+        return null;
+    });
 const analyticsPromise = isSupported().then((supported) => (supported ? getAnalytics(app) : null)).catch(() => null);
 const authReady = setPersistence(auth, browserLocalPersistence).catch(() => null);
 
 export const tripTapAdminFirebase = {
     app,
+    appCheckPromise,
     auth,
     db,
     analyticsPromise,
     authReady,
+    appCheckFns: {
+        getToken
+    },
     authFns: {
         GoogleAuthProvider,
         getRedirectResult,
