@@ -73,6 +73,16 @@ const NAV_ITEMS = [
       { key: "resolved", href: "./reports.html?view=resolved", label: "דיווחים שטופלו" }
     ]
   },
+  {
+    key: "announcements",
+    href: "./announcements.html?view=compose",
+    icon: "megaphone",
+    label: "התראות",
+    subItems: [
+      { key: "compose", href: "./announcements.html?view=compose", label: "שליחת התראה" },
+      { key: "manage", href: "./announcements.html?view=manage", label: "התראות שנשלחו" }
+    ]
+  },
   { key: "settings", href: "./settings.html", icon: "settings", label: "הגדרות" }
 ];
 
