@@ -137,6 +137,8 @@ const IMAGE_PROBE_TIMEOUT_MS = 20000;
 const PIXABAY_IMAGE_PROBE_TIMEOUT_MS = 30000;
 const IMAGE_PROBE_RETRY_DELAY_MS = 450;
 const R2_REFRESH_CONCURRENCY = 4;
+const IMPORT_ENRICH_CONCURRENCY = 5;
+const IMPORT_SAVE_CONCURRENCY = 4;
 
 const DUPLICATE_SYSTEM_PROMPT = `
 אתה מנקה כפילויות של כרטיסיות מקומות באפליקציית Trip Planner.
@@ -3114,25 +3116,32 @@ async function checkDraftDuplicate(draft) {
 async function saveAllDrafts() {
   if (!state.drafts.length) return;
   setSaveAllButtonsLoading(true);
-  state.importProgress = { active: true, total: state.drafts.length, completed: 0, label: "שומר את כל המקומות", note: "מעלה את הכרטיסיות ל-TripInspo.", done: false };
+  const draftsToSave = [...state.drafts];
+  const total = draftsToSave.length;
+  const concurrency = Math.min(IMPORT_SAVE_CONCURRENCY, total);
+  state.importProgress = { active: true, total, completed: 0, label: "שומר את המקומות במקביל", note: `מעלה עד ${concurrency} כרטיסיות בו זמנית ל-TripInspo.`, done: false };
   syncImportProgressDialog();
   $("importProgressDialog")?.showModal();
   let saved = 0;
-  const total = state.drafts.length;
+  let completed = 0;
   const failedIds = new Set();
   const failureMessages = [];
   try {
-    for (const [index, draft] of [...state.drafts].entries()) {
-      state.importProgress = { active: true, total, completed: index, label: draft.name || "מקום", note: "מוריד את התמונה, מעלה ל-R2 ושומר את הכרטיסייה.", done: false };
+    await ensureFreshAdminAuthToken();
+    await mapWithConcurrency(draftsToSave, concurrency, async (draft) => {
+      state.importProgress = { active: true, total, completed, label: "שומר את המקומות במקביל", note: `עובד על ${concurrency} כרטיסיות במקביל. עכשיו שומר: ${draft.name || "מקום"}.`, done: false };
       syncImportProgressDialog();
-      const ok = await saveDraft(draft, { quiet: true });
+      const ok = await saveDraft(draft, { quiet: true, keepInDrafts: true, authAlreadyFresh: true });
       if (ok) saved += 1;
       else {
         failedIds.add(draft.id);
         if (draft.lastSaveError) failureMessages.push(`${draft.name || "מקום"}: ${draft.lastSaveError}`);
       }
-    }
-    state.drafts = state.drafts.filter((draft) => failedIds.has(draft.id));
+      completed += 1;
+      state.importProgress = { active: true, total, completed, label: "שומר את המקומות במקביל", note: `הסתיימו ${completed} מתוך ${total}. נשמרו ${saved}, נשארו ${failedIds.size} לטיפול.`, done: false };
+      syncImportProgressDialog();
+    });
+    state.drafts = draftsToSave.filter((draft) => failedIds.has(draft.id));
     renderDrafts();
     const failureNote = failureMessages.length ? ` ${failureMessages.slice(0, 2).join(" | ")}${failureMessages.length > 2 ? ` ועוד ${failureMessages.length - 2}` : ""}` : "";
     state.importProgress = {
@@ -3167,22 +3176,26 @@ async function saveAllDrafts() {
 
 async function enrichDrafts() {
   if (!state.drafts.length) return;
-  state.importProgress = { active: true, total: state.drafts.length, completed: 0, label: "מתחיל לעבור על המקומות", note: "משלים כתובות, קואורדינטות ותמונות.", done: false };
+  const draftsToEnrich = [...state.drafts];
+  const total = draftsToEnrich.length;
+  const concurrency = Math.min(IMPORT_ENRICH_CONCURRENCY, total);
+  let completed = 0;
+  state.importProgress = { active: true, total, completed: 0, label: "משלים מקומות במקביל", note: `משלים כתובות, קואורדינטות ותמונות עבור עד ${concurrency} כרטיסיות בו זמנית.`, done: false };
   syncImportProgressDialog();
   $("importProgressDialog")?.showModal();
-  for (let index = 0; index < state.drafts.length; index += 1) {
-    const draft = state.drafts[index];
-    state.importProgress = { active: true, total: state.drafts.length, completed: index, label: draft.name || `מקום ${index + 1}`, note: "בודק תמונה וכתובת לכרטיסייה.", done: false };
+  await mapWithConcurrency(draftsToEnrich, concurrency, async (draft) => {
+    state.importProgress = { active: true, total, completed, label: "משלים מקומות במקביל", note: `בודק כתובת ותמונה עבור ${draft.name || "מקום"}.`, done: false };
     syncImportProgressDialog();
     await enrichSingleDraft(draft);
-    state.importProgress = { active: true, total: state.drafts.length, completed: index + 1, label: draft.name || `מקום ${index + 1}`, note: "הכרטיסייה הושלמה.", done: false };
+    completed += 1;
+    state.importProgress = { active: true, total, completed, label: "משלים מקומות במקביל", note: `הסתיימו ${completed} מתוך ${total}.`, done: false };
     syncImportProgressDialog();
-  }
+  });
   const unresolved = state.drafts.filter((draft) => missingDraftFields(draft).length).length;
   state.importProgress = {
     active: true,
-    total: state.drafts.length,
-    completed: state.drafts.length,
+    total,
+    completed: total,
     label: unresolved ? "השלמנו את רוב הנתונים" : "הכל מוכן לשמירה",
     note: unresolved ? `${unresolved} כרטיסיות עדיין צריכות השלמות ידניות.` : "כל הכרטיסיות מוכנות לשמירה.",
     done: true
@@ -3197,12 +3210,14 @@ async function enrichDrafts() {
 }
 
 async function enrichSingleDraft(draft) {
-  try {
-    await autoCompleteDraftAddress(draft);
-  } catch (_) { }
-  try {
-    await autoPickDraftImage(draft);
-  } catch (_) { }
+  const tasks = [];
+  if (!draft.location || draft.lat == null || draft.lon == null) {
+    tasks.push(autoCompleteDraftAddress(draft));
+  }
+  if (!draft.coverImageUrl) {
+    tasks.push(autoPickDraftImage(draft));
+  }
+  await Promise.allSettled(tasks);
   draft.validationIssues = missingDraftFields(draft);
 }
 
@@ -3317,7 +3332,7 @@ async function saveDraft(draft, options = {}) {
     const originalImageUrl = draft.coverImageUrl;
     let imageWarning = "";
     if (!quiet) setStatus("importStatus", `מוריד ומעלה תמונה ל-R2 עבור ${draft.name || "המקום"}...`);
-    await ensureFreshAdminAuthToken();
+    if (!options.authAlreadyFresh) await ensureFreshAdminAuthToken();
     try {
       await ensurePlaceImageOnR2(draft);
     } catch (error) {
@@ -3332,7 +3347,9 @@ async function saveDraft(draft, options = {}) {
       setStatus("importStatus", `${draft.name || "המקום"} נשמר ל-TripInspo.${imageWarning} הוא יופיע גם בלשונית אישור מקומות.`, Boolean(imageWarning));
       showToast(`${draft.name || "המקום"} נשמר ל-TripInspo.`, imageWarning ? "warning" : "success");
     }
-    state.drafts = state.drafts.filter((item) => item.id !== draft.id);
+    if (!options.keepInDrafts) {
+      state.drafts = state.drafts.filter((item) => item.id !== draft.id);
+    }
     return true;
   } catch (error) {
     console.error("[places] save draft failed", error);
@@ -4832,7 +4849,7 @@ async function uploadBlobToR2PlaceImage(blob, sourceUrl, draft) {
   if (!state.user) throw new Error("Missing Firebase user for R2 upload");
   const contentType = blob.type || contentTypeFromUrl(sourceUrl) || "image/jpeg";
   const key = r2PlaceImageKey(draft, contentType, sourceUrl);
-  const idToken = await state.user.getIdToken(true);
+  const idToken = await state.user.getIdToken();
   const mintResponse = await fetch(`${WORKFLOW_URL}/r2-upload-url`, {
     method: "POST",
     headers: await withAppCheckHeaders({
@@ -4859,7 +4876,7 @@ async function copyRemotePlaceImageToR2(sourceUrl, draft) {
   if (!state.user) throw new Error("Missing Firebase user for R2 upload");
   const contentType = contentTypeFromUrl(sourceUrl) || "image/jpeg";
   const key = r2PlaceImageKey(draft, contentType, sourceUrl);
-  const idToken = await state.user.getIdToken(true);
+  const idToken = await state.user.getIdToken();
   try {
     const response = await fetch(`${WORKFLOW_URL}/r2-copy-url`, {
       method: "POST",
