@@ -2963,13 +2963,13 @@ function bindDraftCardEvents() {
     card.addEventListener("click", () => openDraftReviewDialog(id));
     card.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', (event) => {
       event.stopPropagation();
-      handleDraftAction(id, button.dataset.action);
+      handleDraftAction(id, button.dataset.action, button);
     }));
     card.querySelectorAll('a').forEach((link) => link.addEventListener('click', (event) => event.stopPropagation()));
   });
 }
 
-async function handleDraftAction(id, action) {
+async function handleDraftAction(id, action, button = null) {
   const draft = state.drafts.find((item) => item.id === id);
   if (!draft) return;
   if (action === "atmosphere") {
@@ -2985,7 +2985,14 @@ async function handleDraftAction(id, action) {
     window.open(draftSearchUrl(draft), "_blank", "noopener,noreferrer");
     return;
   }
-  if (action === "save") await saveDraft(draft);
+  if (action === "save") {
+    setDraftActionButtonLoading(button, true);
+    try {
+      await saveDraft(draft);
+    } finally {
+      setDraftActionButtonLoading(button, false);
+    }
+  }
   renderDrafts();
 }
 
@@ -3113,30 +3120,45 @@ async function saveAllDrafts() {
   let saved = 0;
   const total = state.drafts.length;
   const failedIds = new Set();
+  const failureMessages = [];
   try {
     for (const [index, draft] of [...state.drafts].entries()) {
       state.importProgress = { active: true, total, completed: index, label: draft.name || "מקום", note: "מוריד את התמונה, מעלה ל-R2 ושומר את הכרטיסייה.", done: false };
       syncImportProgressDialog();
       const ok = await saveDraft(draft, { quiet: true });
       if (ok) saved += 1;
-      else failedIds.add(draft.id);
+      else {
+        failedIds.add(draft.id);
+        if (draft.lastSaveError) failureMessages.push(`${draft.name || "מקום"}: ${draft.lastSaveError}`);
+      }
     }
     state.drafts = state.drafts.filter((draft) => failedIds.has(draft.id));
     renderDrafts();
+    const failureNote = failureMessages.length ? ` ${failureMessages.slice(0, 2).join(" | ")}${failureMessages.length > 2 ? ` ועוד ${failureMessages.length - 2}` : ""}` : "";
     state.importProgress = {
       active: true,
       total,
       completed: total,
       label: failedIds.size ? "השמירה הסתיימה חלקית" : "סיימנו לשמור",
-      note: failedIds.size ? `נשמרו ${saved} מקומות, ו-${failedIds.size} נשארו לטיפול ידני.` : `נשמרו ${saved} מקומות ל-TripInspo.`,
+      note: failedIds.size ? `נשמרו ${saved} מקומות, ו-${failedIds.size} נשארו לטיפול ידני.${failureNote}` : `נשמרו ${saved} מקומות ל-TripInspo.`,
       done: true
     };
     syncImportProgressDialog();
     await sleep(900);
     $("importProgressDialog")?.close();
     if (!failedIds.size && $("jsonInput")) $("jsonInput").value = "";
-    setStatus("importStatus", failedIds.size ? `נשמרו ${saved} מקומות. ${failedIds.size} כרטיסיות לא נשמרו ונשארו ברשימה.` : `נשמרו ${saved} מקומות ל-TripInspo.`, failedIds.size > 0);
+    setStatus(
+      "importStatus",
+      failedIds.size
+        ? `נשמרו ${saved} מקומות. ${failedIds.size} כרטיסיות לא נשמרו ונשארו ברשימה.${failureNote}`
+        : `נשמרו ${saved} מקומות ל-TripInspo. הם יופיעו גם בלשונית אישור מקומות.`,
+      failedIds.size > 0
+    );
     showToast(failedIds.size ? `השמירה הסתיימה. ${saved} נשמרו ו-${failedIds.size} נשארו להשלמה.` : `השמירה הושלמה. נשמרו ${saved} מקומות.`, failedIds.size ? "warning" : "success");
+  } catch (error) {
+    const message = firebaseErrorMessage(error);
+    setStatus("importStatus", `שמירת המקומות נעצרה: ${message}`, true);
+    showToast("שמירת המקומות נעצרה. פרטים מוצגים מתחת ל-JSON.", "error");
   } finally {
     $("importProgressDialog")?.close();
     setSaveAllButtonsLoading(false);
@@ -3259,29 +3281,68 @@ function syncImportProgressDialog() {
 }
 
 async function saveDraft(draft, options = {}) {
+  delete draft.lastSaveError;
   if (!state.user) {
-    setStatus("importStatus", "צריך להתחבר לפני שמירה ל-TripInspo.", true);
+    draft.lastSaveError = "צריך להתחבר לפני שמירה ל-TripInspo.";
+    if (!options.quiet) setStatus("importStatus", draft.lastSaveError, true);
     return false;
   }
-  const duplicate = (await fetchPublicPlacesByExactName(draft.name)).find((place) => isLikelyDuplicate(draft, place));
-  if (duplicate) {
-    const confirmed = await confirmAction({
-      title: "נמצאה כפילות אפשרית",
-      message: `נמצאה כפילות אפשרית: ${duplicate.name}. לשמור בכל זאת?`,
-      confirmText: "שמור בכל זאת",
-      tone: "warning",
-      icon: "copy"
-    });
-    if (!confirmed) return false;
+  const quiet = options.quiet === true;
+  try {
+    let duplicate = null;
+    try {
+      duplicate = (await fetchPublicPlacesByExactName(draft.name)).find((place) => isLikelyDuplicate(draft, place));
+    } catch (error) {
+      console.warn("[places] duplicate check failed", error);
+      if (!quiet) setStatus("importStatus", `בדיקת כפילות נכשלה, ממשיך לשמירה: ${firebaseErrorMessage(error)}`, true);
+    }
+    if (duplicate) {
+      if (quiet) {
+        draft.lastSaveError = `נמצאה כפילות אפשרית: ${duplicate.name}. שמור את הכרטיסיה ידנית כדי לאשר שמירה בכל זאת.`;
+        return false;
+      }
+      const confirmed = await confirmAction({
+        title: "נמצאה כפילות אפשרית",
+        message: `נמצאה כפילות אפשרית: ${duplicate.name}. לשמור בכל זאת?`,
+        confirmText: "שמור בכל זאת",
+        tone: "warning",
+        icon: "copy"
+      });
+      if (!confirmed) {
+        draft.lastSaveError = "השמירה בוטלה בגלל כפילות אפשרית.";
+        return false;
+      }
+    }
+
+    const originalImageUrl = draft.coverImageUrl;
+    let imageWarning = "";
+    if (!quiet) setStatus("importStatus", `מוריד ומעלה תמונה ל-R2 עבור ${draft.name || "המקום"}...`);
+    await ensureFreshAdminAuthToken();
+    try {
+      await ensurePlaceImageOnR2(draft);
+    } catch (error) {
+      draft.coverImageUrl = originalImageUrl;
+      imageWarning = ` התמונה לא עלתה ל-R2 ונשמרה כקישור חיצוני: ${friendlyImageUploadError(error)}`;
+      console.warn("[places] image upload failed; saving place with external image", error);
+    }
+
+    const data = publicPlaceData(draft);
+    await state.firebase.firestore.addDoc(state.firebase.firestore.collection(state.firebase.db, "public_places"), data);
+    if (!quiet) {
+      setStatus("importStatus", `${draft.name || "המקום"} נשמר ל-TripInspo.${imageWarning} הוא יופיע גם בלשונית אישור מקומות.`, Boolean(imageWarning));
+      showToast(`${draft.name || "המקום"} נשמר ל-TripInspo.`, imageWarning ? "warning" : "success");
+    }
+    state.drafts = state.drafts.filter((item) => item.id !== draft.id);
+    return true;
+  } catch (error) {
+    console.error("[places] save draft failed", error);
+    draft.lastSaveError = firebaseErrorMessage(error);
+    if (!quiet) {
+      setStatus("importStatus", `שמירת ${draft.name || "המקום"} נכשלה: ${draft.lastSaveError}`, true);
+      showToast("השמירה נכשלה. פרטים מוצגים מתחת ל-JSON.", "error");
+    }
+    return false;
   }
-  if (!options.quiet) setStatus("importStatus", `מוריד ומעלה תמונה ל-R2 עבור ${draft.name || "המקום"}...`);
-  await ensureFreshAdminAuthToken();
-  await ensurePlaceImageOnR2(draft);
-  const data = publicPlaceData(draft);
-  await state.firebase.firestore.addDoc(state.firebase.firestore.collection(state.firebase.db, "public_places"), data);
-  if (!options.quiet) setStatus("importStatus", `${draft.name} נשמר ל-TripInspo.`);
-  state.drafts = state.drafts.filter((item) => item.id !== draft.id);
-  return true;
 }
 
 function publicPlaceData(draft, existing = null) {
@@ -5248,6 +5309,12 @@ function setSaveAllButtonsLoading(isLoading) {
     button.disabled = isLoading;
     button.classList.toggle("is-loading", isLoading);
   });
+}
+
+function setDraftActionButtonLoading(button, isLoading) {
+  if (!button) return;
+  button.disabled = isLoading;
+  button.classList.toggle("is-loading", isLoading);
 }
 
 function showToast(message, tone = "success") {
