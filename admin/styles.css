@@ -4834,3 +4834,630 @@ dialog.image-dialog::backdrop {
         flex-direction: row;
     }
 }
+
+/* ============================================================
+   TripTap Admin — Places Redesign v2
+   Appended override layer (wins the cascade). CSS only — no
+   markup changes. Goal: cleaner, calmer, more organized layout
+   that works perfectly in dark mode (no light leaks) and feels
+   great on both desktop and phone.
+   ============================================================ */
+
+/* ---- 0. Extended design tokens ---------------------------- */
+:root {
+    --r2-surface: var(--surface);
+    --ring: rgba(13, 148, 136, 0.35);
+    --ring-soft: rgba(13, 148, 136, 0.14);
+    --grad-brand: linear-gradient(135deg, #14b8a6, #0d9488);
+    --grad-gold: linear-gradient(135deg, #f7cd63, #eeb437);
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.06);
+    --shadow-pop: 0 28px 70px rgba(15, 23, 42, 0.18);
+    --hairline: var(--line);
+}
+
+html[data-theme="dark"] {
+    --ring: rgba(45, 212, 191, 0.42);
+    --ring-soft: rgba(45, 212, 191, 0.16);
+    --grad-brand: linear-gradient(135deg, #2dd4bf, #0d9488);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+    --shadow-pop: 0 30px 72px rgba(0, 0, 0, 0.66);
+}
+
+/* ---- 1. Top menu ------------------------------------------ */
+.admin-topbar {
+    gap: 0;
+    padding: 0;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)) ,
+        linear-gradient(135deg, var(--chrome), var(--chrome-2));
+    box-shadow: 0 12px 34px rgba(8, 12, 24, 0.34);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.topbar-main {
+    gap: 16px;
+    min-height: 68px;
+    padding: 10px clamp(16px, 3vw, 34px);
+}
+
+.brand {
+    gap: 13px;
+    min-width: 0;
+}
+
+.brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+    background: var(--grad-gold);
+    color: #1a1205;
+    font-size: 1.2rem;
+    box-shadow: 0 8px 20px rgba(238, 180, 55, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.brand strong {
+    font-size: 1.02rem;
+    letter-spacing: -0.01em;
+}
+
+.brand small {
+    font-size: 0.76rem;
+    color: rgba(249, 246, 239, 0.6);
+}
+
+/* Nav rail — segmented, scrollable, with edge fades */
+.top-nav {
+    gap: 4px;
+    padding: 5px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+}
+
+.top-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.top-nav-item {
+    min-height: 40px;
+    gap: 7px;
+    padding: 0 13px;
+    border-radius: 10px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: rgba(249, 246, 239, 0.66);
+    transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.top-nav-item svg {
+    width: 17px;
+    height: 17px;
+    opacity: 0.9;
+}
+
+.top-nav-item:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.top-nav-item.is-active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+.top-nav-item.is-active svg {
+    opacity: 1;
+    color: var(--brand);
+}
+
+/* Status cluster */
+.top-status {
+    gap: 10px;
+    padding: 6px 10px 6px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.theme-toggle {
+    width: 36px;
+    height: 36px;
+}
+
+/* Sub-nav — contained pill tabs */
+.sub-nav {
+    gap: 5px;
+    padding: 8px clamp(16px, 3vw, 34px) 12px;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.16);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+}
+
+.sub-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.sub-nav-item {
+    min-height: 36px;
+    padding-inline: 15px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: rgba(249, 246, 239, 0.66);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sub-nav-item:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.sub-nav-item.is-active {
+    color: #1a1205;
+    background: var(--grad-gold);
+    border-color: transparent;
+    box-shadow: 0 8px 18px rgba(238, 180, 55, 0.3);
+}
+
+/* ---- 2. Page + section headings --------------------------- */
+.admin-main {
+    padding: clamp(20px, 3vw, 34px) clamp(16px, 4vw, 56px) 64px;
+}
+
+.page-heading {
+    margin-bottom: 22px;
+}
+
+.page-heading h1 {
+    letter-spacing: -0.02em;
+}
+
+.section-heading.compact {
+    margin-bottom: 14px;
+}
+
+/* ---- 3. Panels + cards ------------------------------------ */
+.panel {
+    padding: clamp(18px, 2.2vw, 24px);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    box-shadow: var(--shadow-card);
+}
+
+.wide-panel {
+    background:
+        radial-gradient(120% 140% at 100% 0, var(--ring-soft), transparent 42%),
+        var(--surface);
+}
+
+.panel-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.panel-icon svg {
+    width: 21px;
+    height: 21px;
+}
+
+.panel-heading h2 {
+    letter-spacing: -0.01em;
+}
+
+/* Count pills — soft, legible chips */
+.count-pill {
+    min-height: 32px;
+    padding: 0 13px;
+    background: var(--surface-soft);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.current-summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+/* Search field — bigger target + focus ring */
+.search-input-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+    min-height: 50px;
+    border-radius: 14px;
+    background: var(--field-bg);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.search-input-row:focus-within {
+    border-color: var(--teal);
+    box-shadow: 0 0 0 4px var(--ring-soft);
+}
+
+.search-input-row input {
+    padding: 13px 0;
+}
+
+.field-block label {
+    font-size: 0.92rem;
+    color: var(--ink);
+}
+
+/* Result grids — use desktop space, comfortable on phone */
+.current-place-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.current-place-card {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+}
+
+.current-place-card .place-body h3 {
+    font-size: 1rem;
+}
+
+.cards-grid {
+    gap: 16px;
+}
+
+/* Buttons — primary gets a soft gradient + lift */
+.primary-action {
+    background: var(--grad-brand);
+    border-color: transparent;
+    box-shadow: 0 10px 22px var(--ring-soft);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
+}
+
+.primary-action:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px var(--ring);
+    filter: brightness(1.03);
+}
+
+.ghost-action {
+    transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.ghost-action:hover:not(:disabled) {
+    border-color: var(--teal);
+    background: var(--surface-soft);
+}
+
+.mini-toggle:hover {
+    border-color: var(--teal);
+    color: var(--teal);
+}
+
+/* ---- 4. DeepSeek / AI console ----------------------------- */
+.duplicate-ai-controls {
+    gap: 12px;
+    padding: 14px;
+    border-radius: var(--radius-md);
+    background:
+        radial-gradient(120% 120% at 100% 0, var(--violet-soft), transparent 55%),
+        var(--surface-soft);
+    border: 1px solid var(--line);
+}
+
+.duplicate-ai-controls::before {
+    content: "DeepSeek";
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--violet-soft);
+    color: var(--violet);
+    font-size: 0.74rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.ai-controls-grid {
+    gap: 12px;
+}
+
+.ai-control-field span {
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 800;
+}
+
+.ai-control-field select {
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--field-bg);
+    color: var(--ink);
+    font-weight: 700;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.ai-control-field select:focus {
+    outline: 0;
+    border-color: var(--violet);
+    box-shadow: 0 0 0 4px var(--violet-soft);
+}
+
+.ai-mode-note {
+    border-radius: 12px;
+    background: var(--surface);
+    border-color: var(--line);
+    color: var(--ink);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* Live response — refined terminal, consistent in both themes */
+.duplicate-live-panel {
+    border-radius: var(--radius-md);
+    background: #0b1220;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: var(--shadow-card);
+}
+
+.duplicate-live-heading {
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.duplicate-live-heading strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #e9eef7;
+}
+
+.duplicate-live-heading strong::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: #34d399;
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.18);
+}
+
+.duplicate-live-grid pre {
+    color: #d7def0;
+}
+
+/* ---- 5. Modals / dialogs ---------------------------------- */
+dialog.image-dialog {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-pop);
+    background: var(--surface);
+}
+
+dialog.image-dialog::backdrop {
+    background: rgba(8, 12, 24, 0.55);
+    backdrop-filter: blur(6px);
+}
+
+.dialog-header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
+    margin-bottom: 2px;
+}
+
+.dialog-header h2 {
+    letter-spacing: -0.01em;
+}
+
+.edit-field input,
+.edit-field select,
+.edit-field textarea {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--field-bg);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.edit-field input:focus,
+.edit-field select:focus,
+.edit-field textarea:focus {
+    outline: 0;
+    border-color: var(--teal);
+    box-shadow: 0 0 0 4px var(--ring-soft);
+}
+
+.confirm-dialog-shell {
+    border-radius: var(--radius-lg);
+}
+
+.confirm-dialog-copy h2 {
+    letter-spacing: -0.01em;
+}
+
+/* ---- 6. Dark-mode leak fixes ------------------------------
+   Hard-coded light tints re-mapped to theme tokens so nothing
+   flashes white/pastel against the dark canvas. Light mode is
+   untouched (these only apply under [data-theme="dark"]).      */
+html[data-theme="dark"] .kosher-chip {
+    background: var(--green-soft);
+    color: var(--green);
+}
+
+html[data-theme="dark"] .food-chip {
+    background: var(--amber-soft);
+    color: var(--amber);
+}
+
+html[data-theme="dark"] .draft-card.has-issues {
+    border-color: rgba(251, 124, 99, 0.45);
+    background: linear-gradient(180deg, var(--surface), var(--coral-soft));
+}
+
+html[data-theme="dark"] .atmosphere-toggle.is-on {
+    background: var(--teal-soft);
+    color: var(--teal);
+    border-color: rgba(45, 212, 191, 0.32);
+}
+
+html[data-theme="dark"] .draft-warning-pill {
+    color: var(--red);
+    background: var(--red-soft);
+    border-color: rgba(248, 113, 113, 0.32);
+}
+
+html[data-theme="dark"] .draft-ready-pill {
+    color: var(--green);
+    background: var(--green-soft);
+    border-color: rgba(74, 222, 128, 0.32);
+}
+
+html[data-theme="dark"] .draft-issues {
+    border-color: rgba(248, 113, 113, 0.32);
+    background: var(--red-soft);
+    color: #fecaca;
+}
+
+html[data-theme="dark"] .draft-issues.is-clickable:hover {
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.16);
+}
+
+html[data-theme="dark"] .draft-search-panel,
+html[data-theme="dark"] .draft-search-panel iframe {
+    background: var(--surface);
+}
+
+html[data-theme="dark"] .trip-place-filter-panel {
+    background: var(--surface-soft);
+    border-color: rgba(45, 212, 191, 0.22);
+}
+
+html[data-theme="dark"] .danger-panel {
+    background: linear-gradient(180deg, var(--surface), var(--red-soft));
+}
+
+html[data-theme="dark"] .report-number.is-a {
+    background: var(--blue-soft);
+    color: var(--blue);
+}
+
+html[data-theme="dark"] .report-number.is-b {
+    background: var(--red-soft);
+    color: var(--red);
+}
+
+html[data-theme="dark"] .admin-place-meta-chips .rating-chip {
+    background: var(--amber-soft);
+    color: var(--amber);
+}
+
+html[data-theme="dark"] .admin-place-warning {
+    background: var(--amber-soft);
+    color: var(--amber);
+}
+
+html[data-theme="dark"] .rec-card-image,
+html[data-theme="dark"] .rec-detail-hero,
+html[data-theme="dark"] .preview-rec-image {
+    background: linear-gradient(135deg, var(--surface-soft), var(--surface));
+}
+
+html[data-theme="dark"] .rec-chip {
+    background: var(--surface-soft);
+    color: var(--muted);
+}
+
+html[data-theme="dark"] .rec-chip-positive {
+    background: var(--green-soft);
+    color: var(--green);
+}
+
+html[data-theme="dark"] .rec-chip-muted {
+    background: var(--surface-soft);
+    color: var(--muted);
+}
+
+html[data-theme="dark"] .rec-detail-row,
+html[data-theme="dark"] .preview-rec-section {
+    background: var(--surface-soft);
+}
+
+html[data-theme="dark"] .auth-panel,
+html[data-theme="dark"] .empty-screen {
+    background: var(--surface);
+    border-color: var(--line);
+}
+
+html[data-theme="dark"] .draft-search-panel iframe {
+    border-color: var(--line);
+}
+
+html[data-theme="dark"] .prompt-preview-card {
+    background: linear-gradient(180deg, var(--surface), var(--surface-soft));
+}
+
+/* ---- 7. Responsive polish --------------------------------- */
+@media (max-width: 960px) {
+    .topbar-main {
+        grid-template-columns: auto 1fr auto;
+        gap: 10px;
+    }
+
+    .brand small {
+        display: none;
+    }
+}
+
+@media (max-width: 720px) {
+    .topbar-main {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        min-height: 60px;
+        padding-inline: 14px;
+    }
+
+    .brand {
+        margin-inline-end: auto;
+    }
+
+    .top-nav {
+        order: 3;
+        flex: 1 0 100%;
+        justify-content: flex-start;
+    }
+
+    .sub-nav {
+        padding-inline: 14px;
+    }
+
+    .current-place-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 12px;
+    }
+
+    .duplicate-ai-controls {
+        padding: 12px;
+    }
+}
