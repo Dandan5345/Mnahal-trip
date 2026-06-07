@@ -1,26 +1,93 @@
 :root {
     color-scheme: light;
-    --bg: #f5f2ec;
+
+    /* Surfaces */
+    --bg: #eef1f7;
     --surface: #ffffff;
-    --surface-soft: #fbfaf7;
-    --surface-strong: #fffdf8;
-    --ink: #17201c;
-    --muted: #66736d;
-    --line: #e0dbd2;
-    --teal: #147c72;
-    --teal-soft: #ddf2ee;
+    --surface-soft: #f5f7fb;
+    --surface-strong: #ffffff;
+    --field-bg: #ffffff;
+
+    /* Always-dark chrome (topbar etc.) — consistent across both themes */
+    --chrome: #0f1629;
+    --chrome-2: #1a2236;
+    --on-chrome: #f4f7fc;
+    --on-chrome-muted: rgba(244, 247, 252, 0.66);
+
+    /* Text & lines */
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e6e9f1;
+    --line-strong: #d6dbe6;
+
+    /* Accents */
+    --teal: #0d9488;
+    --teal-soft: #d7f2ee;
     --blue: #2563eb;
-    --blue-soft: #e8efff;
-    --coral: #d9563f;
-    --coral-soft: #ffe6df;
-    --violet: #6855b7;
+    --blue-soft: #e6efff;
+    --coral: #e0573e;
+    --coral-soft: #ffe5df;
+    --violet: #6d5ae0;
     --violet-soft: #ece8ff;
-    --amber: #a96a12;
-    --amber-soft: #fff1d8;
-    --red: #b42318;
-    --red-soft: #fee4e2;
-    --shadow: 0 18px 45px rgba(23, 31, 28, 0.08);
-    --shadow-strong: 0 26px 70px rgba(23, 31, 28, 0.12);
+    --amber: #b4730f;
+    --amber-soft: #fcefd5;
+    --red: #dc2626;
+    --red-soft: #fde6e6;
+    --green: #16a34a;
+    --green-soft: #dcfce7;
+
+    /* Brand mark */
+    --brand: #f5c453;
+
+    /* Radii */
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 26px;
+
+    /* Elevation */
+    --shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+    --shadow-strong: 0 22px 55px rgba(15, 23, 42, 0.13);
+
+    /* Motion */
+    --transition-fast: 0.15s ease;
+    --transition-med: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+
+    --bg: #0a0f1c;
+    --surface: #141b2c;
+    --surface-soft: #1a2335;
+    --surface-strong: #1e2840;
+    --field-bg: #0f1626;
+
+    --chrome: #0a1020;
+    --chrome-2: #131b2d;
+
+    --ink: #e9eef7;
+    --muted: #97a4b8;
+    --line: #2a3447;
+    --line-strong: #3a4760;
+
+    --teal: #2dd4bf;
+    --teal-soft: #0e3a36;
+    --blue: #60a5fa;
+    --blue-soft: #16284d;
+    --coral: #fb7c63;
+    --coral-soft: #3d2019;
+    --violet: #a89bff;
+    --violet-soft: #271f4d;
+    --amber: #e0a83a;
+    --amber-soft: #3a2c0f;
+    --red: #f87171;
+    --red-soft: #3a1a1a;
+    --green: #4ade80;
+    --green-soft: #133021;
+
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    --shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -36,9 +103,7 @@ body {
     margin: 0;
     font-family: "Assistant", Arial, sans-serif;
     color: var(--ink);
-    background:
-        linear-gradient(180deg, rgba(255, 253, 248, 0.78), rgba(245, 242, 236, 0.92) 220px),
-        var(--bg);
+    background: var(--bg);
 }
 
 button,
@@ -71,9 +136,9 @@ textarea {
     display: grid;
     gap: 12px;
     padding: 12px clamp(16px, 3vw, 34px);
-    background: linear-gradient(135deg, rgba(17, 25, 22, 0.98), rgba(27, 41, 36, 0.96));
-    color: #f9f6ef;
-    box-shadow: 0 12px 34px rgba(17, 25, 22, 0.16);
+    background: linear-gradient(135deg, var(--chrome), var(--chrome-2));
+    color: var(--on-chrome);
+    box-shadow: 0 10px 30px rgba(8, 12, 24, 0.28);
     backdrop-filter: blur(14px);
 }
 
@@ -187,8 +252,30 @@ textarea {
     display: flex;
     align-items: center;
     gap: 9px;
-    color: rgba(249, 246, 239, 0.86);
+    color: var(--on-chrome-muted);
     white-space: nowrap;
+}
+
+.theme-toggle {
+    display: inline-grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    color: var(--on-chrome);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    transition: background var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.theme-toggle:hover {
+    background: rgba(255, 255, 255, 0.16);
+    transform: translateY(-1px);
+}
+
+.theme-toggle svg {
+    width: 19px;
+    height: 19px;
 }
 
 .connection-dot {
@@ -414,11 +501,11 @@ svg {
     display: grid;
     gap: 8px;
     padding: 18px;
-    border: 1px solid rgba(20, 124, 114, 0.14);
-    border-radius: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
     background:
-        radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 42%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(251, 250, 247, 0.94));
+        radial-gradient(circle at top left, color-mix(in srgb, var(--teal) 10%, transparent), transparent 46%),
+        var(--surface);
     box-shadow: var(--shadow);
 }
 
@@ -495,9 +582,11 @@ svg {
 }
 
 .panel {
-    padding: 20px;
-    border-radius: 24px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 250, 247, 0.96));
+    padding: 22px;
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
 }
 
 .panel-heading {
@@ -600,7 +689,7 @@ svg {
     padding: 0 10px;
     border: 1px solid var(--line);
     border-radius: 999px;
-    background: #fff;
+    background: var(--surface);
     color: var(--muted);
     font: inherit;
     font-size: 0.78rem;
@@ -641,7 +730,7 @@ svg {
     gap: 12px;
     border: 1px solid var(--line);
     border-radius: 8px;
-    background: #fff;
+    background: var(--surface);
     padding: 10px 12px;
     text-align: right;
     color: var(--ink);
@@ -665,7 +754,7 @@ svg {
 .suggestion-empty {
     border: 1px dashed var(--line);
     border-radius: 8px;
-    background: #fff;
+    background: var(--surface);
     color: var(--muted);
     padding: 11px 12px;
     font-size: 0.9rem;
@@ -691,7 +780,7 @@ svg {
     padding: 0 9px;
     border-radius: 999px;
     color: var(--teal);
-    background: #fff;
+    background: var(--surface);
     white-space: nowrap;
 }
 
@@ -748,7 +837,7 @@ svg {
     padding: 0 14px;
     border-radius: 16px;
     border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.82);
+    background: var(--surface);
     color: var(--ink);
     font-weight: 700;
 }
@@ -1282,7 +1371,7 @@ svg {
     padding: 0 10px;
     border: 1px solid rgba(148, 163, 184, 0.45);
     border-radius: 999px;
-    background: #fff;
+    background: var(--surface);
     color: var(--muted);
     font: inherit;
     font-size: 0.82rem;
@@ -1497,7 +1586,7 @@ svg {
     border: 1px solid var(--line);
     border-radius: 16px;
     background: var(--surface-soft);
-    color: #334155;
+    color: var(--muted);
     font-weight: 700;
     line-height: 1.35;
 }
@@ -1719,7 +1808,7 @@ svg {
     border: 1px solid var(--line);
     border-radius: 8px;
     overflow: hidden;
-    background: #fff;
+    background: var(--surface);
     text-align: right;
 }
 
@@ -1741,13 +1830,31 @@ svg {
     width: 100%;
 }
 
+.login-theme-toggle {
+    position: fixed;
+    inset-inline-end: clamp(16px, 4vw, 40px);
+    top: clamp(16px, 4vw, 40px);
+    z-index: 30;
+    width: 46px;
+    height: 46px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+}
+
+.login-theme-toggle:hover {
+    background: var(--surface-soft);
+    transform: translateY(-1px);
+}
+
 .login-body {
     min-height: 100vh;
     background:
-        radial-gradient(circle at top right, rgba(37, 99, 235, 0.16), transparent 32%),
-        radial-gradient(circle at 20% 80%, rgba(20, 124, 114, 0.14), transparent 28%),
-        linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(250, 244, 235, 0.9)),
+        radial-gradient(circle at top right, color-mix(in srgb, var(--blue) 18%, transparent), transparent 34%),
+        radial-gradient(circle at 18% 82%, color-mix(in srgb, var(--teal) 16%, transparent), transparent 30%),
         var(--bg);
+    background-attachment: fixed;
 }
 
 .login-layout {
@@ -1763,7 +1870,7 @@ svg {
 .login-card {
     border: 1px solid var(--line);
     border-radius: 28px;
-    background: rgba(255, 255, 255, 0.88);
+    background: var(--surface);
     box-shadow: var(--shadow-strong);
     backdrop-filter: blur(14px);
 }
@@ -1773,9 +1880,9 @@ svg {
     overflow: hidden;
     padding: clamp(24px, 4vw, 52px);
     background:
-        radial-gradient(circle at top left, rgba(37, 99, 235, 0.16), transparent 32%),
-        radial-gradient(circle at bottom right, rgba(20, 124, 114, 0.12), transparent 30%),
-        rgba(255, 255, 255, 0.88);
+        radial-gradient(circle at top left, color-mix(in srgb, var(--blue) 16%, transparent), transparent 34%),
+        radial-gradient(circle at bottom right, color-mix(in srgb, var(--teal) 14%, transparent), transparent 32%),
+        var(--surface);
 }
 
 .login-card {
@@ -1817,8 +1924,8 @@ svg {
     gap: 4px;
     padding: 14px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.9);
+    background: var(--surface);
+    border: 1px solid var(--line);
 }
 
 .login-metric-card strong {
@@ -1844,8 +1951,8 @@ svg {
     min-height: 42px;
     padding: 0 14px;
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.68);
-    border: 1px solid rgba(255, 255, 255, 0.88);
+    background: var(--surface);
+    border: 1px solid var(--line);
     font-weight: 700;
 }
 
@@ -1907,7 +2014,7 @@ svg {
     margin-top: 16px;
     padding: 14px 16px;
     border-radius: 18px;
-    background: linear-gradient(180deg, rgba(232, 239, 255, 0.8), rgba(255, 255, 255, 0.9));
+    background: linear-gradient(180deg, var(--blue-soft), var(--surface));
     border: 1px solid rgba(37, 99, 235, 0.12);
 }
 
@@ -2541,7 +2648,7 @@ svg {
 
 .user-row.is-blocked {
     border-color: rgba(180, 35, 24, 0.24);
-    background: linear-gradient(0deg, rgba(254, 228, 226, 0.24), rgba(255, 255, 255, 0.9));
+    background: linear-gradient(0deg, var(--red-soft), var(--surface));
 }
 
 .user-identity {
@@ -3036,7 +3143,7 @@ svg {
     border: 1px dashed var(--line);
     border-radius: 22px;
     color: var(--muted);
-    background: rgba(255, 255, 255, 0.7);
+    background: var(--surface);
     text-align: center;
     padding: 24px;
 }
@@ -3216,7 +3323,7 @@ svg {
 .rec-card {
     display: flex;
     flex-direction: column;
-    background: #fff;
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 18px;
     overflow: hidden;
@@ -3298,7 +3405,7 @@ svg {
 
 .rec-card-summary {
     margin: 0;
-    color: #475569;
+    color: var(--muted);
     font-size: 0.9rem;
     line-height: 1.45;
 }
@@ -3314,7 +3421,7 @@ svg {
     align-items: center;
     gap: 5px;
     background: #f1f5f9;
-    color: #0f172a;
+    color: var(--ink);
     border-radius: 999px;
     padding: 4px 10px;
     font-size: 0.78rem;
@@ -3404,7 +3511,7 @@ svg {
 
 .rec-detail-summary {
     margin: 0;
-    color: #334155;
+    color: var(--muted);
     line-height: 1.55;
 }
 
@@ -3484,7 +3591,7 @@ svg {
 }
 
 .trip-loading-card {
-    background: #fff;
+    background: var(--surface);
     padding: 28px 36px;
     border-radius: 18px;
     box-shadow: 0 24px 60px rgba(15, 23, 42, 0.4);
@@ -3533,7 +3640,7 @@ svg {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    background: #fff;
+    background: var(--surface);
     color: var(--ink);
     padding: 12px 18px;
     border-radius: 14px;
@@ -3691,7 +3798,7 @@ svg {
 .preview-rec-card {
     display: flex;
     flex-direction: column;
-    background: #fff;
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 14px;
     overflow: hidden;
@@ -3749,7 +3856,7 @@ svg {
 
 .preview-rec-summary {
     margin: 4px 0 0;
-    color: #475569;
+    color: var(--muted);
     font-size: 0.84rem;
     line-height: 1.4;
 }
@@ -3781,9 +3888,10 @@ html {
 
 body {
     background:
-        radial-gradient(1200px 600px at 90% -10%, rgba(20, 124, 114, 0.08), transparent 60%),
-        radial-gradient(900px 500px at -10% 30%, rgba(245, 196, 83, 0.10), transparent 70%),
-        linear-gradient(180deg, #fbf9f4, #f3efe7);
+        radial-gradient(1100px 560px at 92% -12%, rgba(13, 148, 136, 0.10), transparent 60%),
+        radial-gradient(900px 520px at -10% 24%, rgba(109, 90, 224, 0.08), transparent 68%),
+        var(--bg);
+    background-attachment: fixed;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -3800,12 +3908,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(23, 32, 28, 0.16);
+    background: color-mix(in srgb, var(--muted) 45%, transparent);
     border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(23, 32, 28, 0.28);
+    background: color-mix(in srgb, var(--muted) 70%, transparent);
+    background-clip: padding-box;
 }
 
 /* Topbar */
@@ -3906,7 +4017,8 @@ body {
 .edit-field textarea,
 .edit-field select,
 .json-input {
-    background: #fff;
+    background: var(--field-bg);
+    color: var(--ink);
     border: 1px solid var(--line);
     border-radius: 12px;
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
@@ -3984,7 +4096,7 @@ dialog.image-dialog {
     padding: 0;
     box-shadow: 0 30px 80px rgba(15, 23, 42, 0.32);
     max-width: min(720px, 96vw);
-    background: #fff;
+    background: var(--surface);
 }
 
 dialog.image-dialog::backdrop {
@@ -4034,7 +4146,7 @@ dialog.image-dialog::backdrop {
 .edit-field select {
     width: 100%;
     padding: 10px 12px;
-    background: #fff;
+    background: var(--surface);
     color: var(--ink);
 }
 
@@ -4069,7 +4181,7 @@ dialog.image-dialog::backdrop {
     border: 1px solid var(--line);
     border-radius: 12px;
     overflow: hidden;
-    background: #fff;
+    background: var(--surface);
     cursor: pointer;
     transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -4091,7 +4203,7 @@ dialog.image-dialog::backdrop {
     font-size: 0.78rem;
     color: var(--muted);
     text-align: start;
-    background: #fff;
+    background: var(--surface);
 }
 
 /* ============================================================
@@ -4306,7 +4418,7 @@ dialog.image-dialog::backdrop {
     .rec-detail-row {
         grid-template-columns: 1fr;
         gap: 4px;
-        background: #fff;
+        background: var(--surface);
         border: 1px solid var(--line);
     }
 

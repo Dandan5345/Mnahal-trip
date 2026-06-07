@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TripTap Admin Login</title>
-    <meta name="theme-color" content="#ff5d8f" />
+    <meta name="theme-color" content="#0f1629" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
@@ -15,10 +15,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&display=swap"
         rel="stylesheet" />
+    <script>(function(){try{var t=localStorage.getItem("triptap-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=t;}catch(e){}})();</script>
     <link rel="stylesheet" href="./styles.css" />
 </head>
 
 <body class="login-body">
+    <button class="theme-toggle login-theme-toggle" type="button" id="themeToggle" aria-label="מצב כהה/בהיר"
+        title="מצב כהה/בהיר">
+        <i data-lucide="moon"></i>
+    </button>
     <main class="login-layout">
         <section class="login-hero">
             <p class="eyebrow">TripTap Admin</p>
@@ -85,6 +90,21 @@
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script type="module" src="./login.js"></script>
     <script>
+        (function () {
+            const btn = document.getElementById("themeToggle");
+            function paint() {
+                const dark = document.documentElement.dataset.theme === "dark";
+                btn.innerHTML = `<i data-lucide="${dark ? "sun" : "moon"}"></i>`;
+                if (window.lucide) window.lucide.createIcons();
+            }
+            btn.addEventListener("click", () => {
+                const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+                document.documentElement.dataset.theme = next;
+                try { localStorage.setItem("triptap-theme", next); } catch (e) { }
+                paint();
+            });
+            paint();
+        })();
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.register("./sw.js").catch(() => { });
         }

@@ -111,6 +111,9 @@ export function createAdminShell({ activeKey, activeSubKey = "", title, subtitle
           </nav>
 
           <div class="top-status">
+            <button class="theme-toggle" type="button" id="themeToggle" aria-label="החלפת מצב כהה/בהיר" title="מצב כהה/בהיר">
+              <i data-lucide="moon" aria-hidden="true"></i>
+            </button>
             <span class="connection-dot" id="firebaseDot"></span>
             <span id="firebaseStatus">Firebase נטען</span>
           </div>
@@ -163,10 +166,42 @@ function createAuthBanner() {
   `;
 }
 
+export function applyStoredTheme() {
+  let theme = "light";
+  try {
+    theme = localStorage.getItem("triptap-theme")
+      || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  } catch (_) { }
+  document.documentElement.dataset.theme = theme;
+  return theme;
+}
+
+function setThemeToggleIcon(theme) {
+  const button = document.getElementById("themeToggle");
+  if (!button) return;
+  button.innerHTML = `<i data-lucide="${theme === "dark" ? "sun" : "moon"}" aria-hidden="true"></i>`;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function bindThemeToggle() {
+  const button = document.getElementById("themeToggle");
+  if (!button || button.dataset.bound === "true") return;
+  button.dataset.bound = "true";
+  setThemeToggleIcon(document.documentElement.dataset.theme || "light");
+  button.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("triptap-theme", next); } catch (_) { }
+    setThemeToggleIcon(next);
+  });
+}
+
 export function attachSharedUi({ activeKey, requireAuth = true, onAuthed, onUnauthed }) {
   const firebase = tripTapAdminFirebase;
   const root = document.documentElement;
   root.dataset.page = activeKey;
+  applyStoredTheme();
+  bindThemeToggle();
 
   firebase.analyticsPromise.then(() => {
     const dot = document.getElementById("firebaseDot");
