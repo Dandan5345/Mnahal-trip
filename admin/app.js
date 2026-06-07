@@ -380,6 +380,17 @@ function renderAiPreferenceControls(feature, noteId) {
   `;
 }
 
+// Design A — "Calm" Places reskin: inject the page-scoped stylesheet once
+// and mark the body so places-a.css can scope every selector under .pa-root.
+if (!document.getElementById("places-a-css")) {
+  const l = document.createElement("link");
+  l.id = "places-a-css";
+  l.rel = "stylesheet";
+  l.href = "./places-a.css";
+  document.head.appendChild(l);
+}
+document.body.classList.add("pa-root");
+
 renderPage();
 
 function renderPage() {

@@ -93,6 +93,10 @@ export function createAdminShell({ activeKey, activeSubKey = "", title, subtitle
     <div class="admin-app">
       <header class="admin-topbar">
         <div class="topbar-main">
+          <button class="nav-toggle" type="button" id="navToggle" aria-label="תפריט" aria-expanded="false" aria-controls="navDrawer">
+            <i data-lucide="menu" aria-hidden="true"></i>
+          </button>
+
           <a class="brand" href="./places.html?view=current" aria-label="TripTap Admin">
             <span class="brand-mark">T</span>
             <span>
@@ -129,6 +133,41 @@ export function createAdminShell({ activeKey, activeSubKey = "", title, subtitle
           </nav>
         ` : ""}
       </header>
+
+      <div class="nav-scrim" id="navScrim" hidden></div>
+      <nav class="nav-drawer" id="navDrawer" aria-label="תפריט ניווט" aria-hidden="true">
+        <div class="nav-drawer-head">
+          <a class="brand nav-drawer-brand" href="./places.html?view=current" aria-label="TripTap Admin">
+            <span class="brand-mark">T</span>
+            <span>
+              <strong>TripTap Admin</strong>
+              <small>ניהול תוכן</small>
+            </span>
+          </a>
+          <button class="nav-drawer-close" type="button" id="navDrawerClose" aria-label="סגירת תפריט">
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="nav-drawer-body">
+          ${NAV_ITEMS.map((item) => `
+            <div class="nav-drawer-group ${item.key === activeKey ? "is-active" : ""}">
+              <a class="nav-drawer-item ${item.key === activeKey ? "is-active" : ""}" href="${item.href}">
+                <i data-lucide="${item.icon}" aria-hidden="true"></i>
+                <span>${item.label}</span>
+              </a>
+              ${(item.subItems || []).length ? `
+                <div class="nav-drawer-sub">
+                  ${item.subItems.map((sub) => `
+                    <a class="nav-drawer-subitem ${item.key === activeKey && sub.key === activeSubKey ? "is-active" : ""}" href="${sub.href}" data-sub-key="${sub.key}">
+                      <span>${sub.label}</span>
+                    </a>
+                  `).join("")}
+                </div>
+              ` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </nav>
 
       <main class="admin-main">
         <section class="section-view is-active">
@@ -196,12 +235,60 @@ function bindThemeToggle() {
   });
 }
 
+function bindNavDrawer() {
+  const toggle = document.getElementById("navToggle");
+  const drawer = document.getElementById("navDrawer");
+  const scrim = document.getElementById("navScrim");
+  const closeBtn = document.getElementById("navDrawerClose");
+  if (!toggle || !drawer || !scrim) return;
+  if (toggle.dataset.bound === "true") return;
+  toggle.dataset.bound = "true";
+
+  const openDrawer = () => {
+    document.documentElement.classList.add("nav-drawer-open");
+    document.body.classList.add("nav-drawer-open");
+    toggle.setAttribute("aria-expanded", "true");
+    drawer.setAttribute("aria-hidden", "false");
+    scrim.hidden = false;
+  };
+
+  const closeDrawer = () => {
+    document.documentElement.classList.remove("nav-drawer-open");
+    document.body.classList.remove("nav-drawer-open");
+    toggle.setAttribute("aria-expanded", "false");
+    drawer.setAttribute("aria-hidden", "true");
+    scrim.hidden = true;
+  };
+
+  toggle.addEventListener("click", () => {
+    if (document.documentElement.classList.contains("nav-drawer-open")) {
+      closeDrawer();
+    } else {
+      openDrawer();
+    }
+  });
+
+  scrim.addEventListener("click", closeDrawer);
+  closeBtn?.addEventListener("click", closeDrawer);
+
+  drawer.addEventListener("click", (event) => {
+    if (event.target?.closest?.("a[href]")) closeDrawer();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.documentElement.classList.contains("nav-drawer-open")) {
+      closeDrawer();
+    }
+  });
+}
+
 export function attachSharedUi({ activeKey, requireAuth = true, onAuthed, onUnauthed }) {
   const firebase = tripTapAdminFirebase;
   const root = document.documentElement;
   root.dataset.page = activeKey;
   applyStoredTheme();
   bindThemeToggle();
+  bindNavDrawer();
 
   firebase.analyticsPromise.then(() => {
     const dot = document.getElementById("firebaseDot");

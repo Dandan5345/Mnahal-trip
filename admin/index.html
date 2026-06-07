@@ -3,10 +3,10 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>TripTap Admin</title>
     <meta name="description" content="ניהול מקומות, טיולים, מלונות והגדרות עבור TripTap" />
-    <meta name="theme-color" content="#0f1629" />
+    <meta name="theme-color" content="#0c0e13" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
@@ -18,35 +18,43 @@
     <meta property="og:image" content="./assets/hero.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700;800&display=swap"
         rel="stylesheet" />
     <script>(function () { try { var t = localStorage.getItem("triptap-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); document.documentElement.dataset.theme = t; } catch (e) { } })();</script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <style>
         :root {
-            --bg: #eef1f7;
+            --bg: #f6f7f9;
             --surface: #ffffff;
-            --surface-soft: #f5f7fb;
-            --ink: #0f172a;
-            --muted: #64748b;
-            --line: #e6e9f1;
-            --teal: #0d9488;
-            --violet: #6d5ae0;
-            --brand: #f5c453;
-            --shadow: 0 18px 45px rgba(15, 23, 42, 0.10);
-            --radius: 20px;
+            --surface-soft: #f1f3f6;
+            --ink: #15181f;
+            --muted: #4c5462;
+            --line: #e8eaef;
+            --line-strong: #d6dae1;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --accent-text: #2059d6;
+            --accent-weak: #eef3ff;
+            --brand: #2563eb;
+            --shadow: 0 1px 2px rgba(20, 24, 33, 0.04), 0 1px 0 rgba(20, 24, 33, 0.02);
+            --shadow-soft: 0 12px 32px -12px rgba(20, 24, 33, 0.14), 0 2px 8px rgba(20, 24, 33, 0.05);
+            --radius: 16px;
         }
 
         html[data-theme="dark"] {
-            --bg: #0a0f1c;
-            --surface: #141b2c;
-            --surface-soft: #1a2335;
-            --ink: #e9eef7;
-            --muted: #97a4b8;
-            --line: #2a3447;
-            --teal: #2dd4bf;
-            --violet: #a89bff;
-            --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+            --bg: #0c0e13;
+            --surface: #15181f;
+            --surface-soft: #1c2029;
+            --ink: #eceef3;
+            --muted: #a7afbe;
+            --line: #242935;
+            --line-strong: #353c4a;
+            --accent: #4f86f7;
+            --accent-hover: #6a99f8;
+            --accent-text: #7aa5f9;
+            --accent-weak: #16203a;
+            --shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+            --shadow-soft: 0 16px 40px -12px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.4);
         }
 
         * {
@@ -58,23 +66,33 @@
             margin: 0;
             padding: 0;
             min-height: 100%;
+            overflow-x: hidden;
         }
 
         body {
-            font-family: "Assistant", system-ui, -apple-system, "Segoe UI", sans-serif;
+            font-family: "Heebo", "Assistant", system-ui, -apple-system, "Segoe UI", sans-serif;
             color: var(--ink);
             background:
-                radial-gradient(1100px 560px at 92% -12%, color-mix(in srgb, var(--teal) 18%, transparent), transparent 60%),
-                radial-gradient(900px 520px at -10% 18%, color-mix(in srgb, var(--violet) 16%, transparent), transparent 64%),
+                radial-gradient(1100px 560px at 92% -14%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 62%),
+                radial-gradient(900px 520px at -8% 16%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 66%),
                 var(--bg);
             -webkit-font-smoothing: antialiased;
             line-height: 1.55;
+        }
+
+        a,
+        button {
+            touch-action: manipulation;
         }
 
         .page {
             max-width: 1120px;
             margin: 0 auto;
             padding: clamp(18px, 4vw, 36px);
+            padding-top: max(clamp(18px, 4vw, 36px), env(safe-area-inset-top));
+            padding-left: max(clamp(18px, 4vw, 36px), env(safe-area-inset-left));
+            padding-right: max(clamp(18px, 4vw, 36px), env(safe-area-inset-right));
+            padding-bottom: max(clamp(18px, 4vw, 36px), env(safe-area-inset-bottom));
             min-height: 100vh;
             min-height: 100svh;
             display: flex;
@@ -101,8 +119,9 @@
         .brand img {
             width: 40px;
             height: 40px;
+            flex-shrink: 0;
             border-radius: 11px;
-            box-shadow: 0 8px 18px color-mix(in srgb, var(--brand) 45%, transparent);
+            box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 32%, transparent);
         }
 
         .brand small {
@@ -117,17 +136,24 @@
             place-items: center;
             width: 44px;
             height: 44px;
+            min-width: 44px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--surface);
             color: var(--ink);
             cursor: pointer;
             box-shadow: var(--shadow);
-            transition: transform .15s ease;
+            transition: transform .15s ease, border-color .15s ease, background .15s ease;
         }
 
         .theme-btn:hover {
             transform: translateY(-2px);
+            border-color: var(--line-strong);
+            background: var(--surface-soft);
+        }
+
+        .theme-btn:active {
+            transform: translateY(0);
         }
 
         .hero {
@@ -144,11 +170,11 @@
             gap: 8px;
             padding: 7px 14px;
             border-radius: 999px;
-            background: color-mix(in srgb, var(--teal) 14%, var(--surface));
-            color: var(--teal);
+            background: var(--accent-weak);
+            color: var(--accent-text);
             font-weight: 700;
             font-size: 0.85rem;
-            border: 1px solid color-mix(in srgb, var(--teal) 25%, transparent);
+            border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
         }
 
         h1 {
@@ -160,7 +186,7 @@
         }
 
         h1 span {
-            background: linear-gradient(120deg, var(--teal), var(--violet));
+            background: linear-gradient(120deg, var(--accent), var(--accent-hover));
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
@@ -183,13 +209,15 @@
         .cta {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 9px;
-            padding: 14px 24px;
+            min-height: 48px;
+            padding: 13px 24px;
             border-radius: 14px;
             font-weight: 700;
             text-decoration: none;
             border: 1px solid transparent;
-            transition: transform .15s ease, box-shadow .15s ease;
+            transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
         }
 
         .cta svg {
@@ -198,20 +226,32 @@
         }
 
         .cta-primary {
-            background: linear-gradient(135deg, var(--teal), var(--violet));
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
             color: #fff;
-            box-shadow: 0 16px 34px color-mix(in srgb, var(--violet) 36%, transparent);
+            box-shadow: 0 14px 30px -8px color-mix(in srgb, var(--accent) 50%, transparent);
+        }
+
+        .cta-primary:hover {
+            box-shadow: 0 18px 36px -8px color-mix(in srgb, var(--accent) 55%, transparent);
         }
 
         .cta-secondary {
             background: var(--surface);
             color: var(--ink);
-            border-color: var(--line);
+            border-color: var(--line-strong);
             box-shadow: var(--shadow);
+        }
+
+        .cta-secondary:hover {
+            background: var(--surface-soft);
         }
 
         .cta:hover {
             transform: translateY(-2px);
+        }
+
+        .cta:active {
+            transform: translateY(0);
         }
 
         .hero-card {
@@ -219,7 +259,7 @@
             border-radius: clamp(20px, 3vw, 28px);
             overflow: hidden;
             border: 1px solid var(--line);
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-soft);
             aspect-ratio: 4 / 3.4;
             background: var(--surface-soft);
         }
@@ -246,6 +286,12 @@
             background: var(--surface);
             border: 1px solid var(--line);
             box-shadow: var(--shadow);
+            transition: border-color .15s ease, transform .15s ease;
+        }
+
+        .feature:hover {
+            border-color: var(--line-strong);
+            transform: translateY(-2px);
         }
 
         .feature .ico {
@@ -254,8 +300,8 @@
             width: 42px;
             height: 42px;
             border-radius: 12px;
-            background: color-mix(in srgb, var(--teal) 14%, var(--surface));
-            color: var(--teal);
+            background: var(--accent-weak);
+            color: var(--accent-text);
         }
 
         .feature strong {
@@ -277,11 +323,84 @@
         @media (max-width: 820px) {
             .hero {
                 grid-template-columns: 1fr;
+                align-items: stretch;
             }
 
             .hero-card {
                 order: -1;
                 aspect-ratio: 16 / 10;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .page {
+                gap: clamp(24px, 7vw, 36px);
+            }
+
+            .topbar {
+                gap: 10px;
+            }
+
+            .brand {
+                gap: 10px;
+                min-width: 0;
+            }
+
+            .brand span {
+                font-size: 0.98rem;
+                line-height: 1.2;
+            }
+
+            h1 {
+                font-size: clamp(30px, 9vw, 42px);
+            }
+
+            .lede {
+                font-size: 15.5px;
+            }
+
+            .cta-row {
+                gap: 10px;
+                margin-top: 22px;
+            }
+
+            .cta {
+                flex: 1 1 100%;
+                width: 100%;
+            }
+
+            .hero-card {
+                aspect-ratio: 16 / 11;
+            }
+
+            .features {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .feature {
+                padding: 18px;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .brand small {
+                font-size: 0.72rem;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            .theme-btn,
+            .cta,
+            .feature {
+                transition: none;
+            }
+
+            .theme-btn:hover,
+            .cta:hover,
+            .feature:hover {
+                transform: none;
             }
         }
     </style>
