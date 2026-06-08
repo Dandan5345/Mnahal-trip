@@ -1177,7 +1177,7 @@ function applyChatChanges() {
     const dayNumber = state.parsedTemplate.days[dayIndex].dayNumber;
     state.parsedTemplate.days[dayIndex] = { ...state.chat.pendingDay, dayNumber };
     state.chat.pendingDay = null;
-    state.lastSavedSignature = null;
+    markTemplateDirty();
     state.chat.messages.push({ role: "assistant", text: "מעולה, החלתי את השינויים על הלו״ז ✓. רוצה לערוך עוד משהו?" });
     $("chatDiffDialog")?.close();
     renderTripPreview();
@@ -1215,7 +1215,7 @@ function init() {
 function bindActions() {
     $$('[data-compose-section]').forEach((button) => button.addEventListener("click", () => switchComposeSection(button.dataset.composeSection)));
     $("tripMobilePrevStep")?.addEventListener("click", () => navigateComposeStep(-1));
-    $("tripMobileNextStep")?.addEventListener("click", () => navigateComposeStep(1));
+    $("tripMobileNextStep")?.addEventListener("click", handleMobileNextStep);
     $("tripComposeStepper")?.addEventListener("click", (event) => {
         const dot = event.target.closest(".trip-stepper-dot[data-compose-section]");
         if (!dot || dot.disabled) return;
@@ -1400,7 +1400,7 @@ async function pasteTripJson() {
 function parseTripJson() {
     try {
         state.parsedTemplate = parsePlannerTemplateJson($("tripJsonInput").value);
-        state.lastSavedSignature = null;
+        markTemplateDirty();
         state.lastSavedId = null;
         state.heroImageUrl = null;
         state.heroPhotographerName = null;
@@ -1517,6 +1517,18 @@ function navigateComposeStep(direction) {
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function handleMobileNextStep() {
+    if (state.composeSection === "final") {
+        saveTripTemplate();
+        return;
+    }
+    navigateComposeStep(1);
+}
+
+function markTemplateDirty() {
+    state.lastSavedSignature = null;
+}
+
 function updateComposeStepNav() {
     if (state.view !== "compose") return;
     const currentIndex = getComposeStepIndex(state.composeSection);
@@ -1546,11 +1558,12 @@ function updateComposeStepNav() {
 
     const prevButton = $("tripMobilePrevStep");
     const nextButton = $("tripMobileNextStep");
+    const onFinal = state.composeSection === "final";
     if (prevButton) prevButton.disabled = !prevStep || !canOpenComposeSection(prevStep.key);
     if (nextButton) {
-        nextButton.disabled = !nextStep || !canOpenComposeSection(nextStep.key);
+        nextButton.disabled = onFinal ? (state.saving || !state.parsedTemplate) : (!nextStep || !canOpenComposeSection(nextStep.key));
         const nextLabel = nextButton.querySelector("span");
-        if (nextLabel) nextLabel.textContent = nextStep ? "הבא" : "סיום";
+        if (nextLabel) nextLabel.textContent = onFinal ? "שמור וסיים" : "הבא";
     }
 }
 
@@ -1806,11 +1819,6 @@ async function saveTripTemplate() {
     const template = buildTripTemplatePayload(state.parsedTemplate, state.editingTemplate || {});
     try {
         const signature = computeTemplateSignature(template);
-        if (signature && signature === state.lastSavedSignature && state.lastSavedId) {
-            showToast("התבנית הזאת כבר נשמרה — לא נשמרה שוב.", "warning");
-            setStatus("tripStatus", `כבר נשמרה (${state.lastSavedId}).`);
-            return;
-        }
         showLoadingOverlay("שומר תמונות ב-R2...");
         setStatus("tripStatus", "שומר תמונות ב-R2...");
         await prepareTripTemplateImagesForR2(template);
@@ -1836,6 +1844,8 @@ async function saveTripTemplate() {
             button.classList.remove("is-loading");
         }
         hideLoadingOverlay();
+        updateComposeStepNav();
+        updateSaveTripButtonLabel();
     }
 }
 
@@ -1845,12 +1855,40 @@ function computeTemplateSignature(template) {
             name: template.name,
             mainDestination: template.mainDestination,
             days: template.days,
+            description: template.description,
+            tripDescription: template.tripDescription,
+            whyThisTrip: template.whyThisTrip,
+            recommendedStart: template.recommendedStart,
+            heroImageUrl: template.heroImageUrl,
             schedule: (template.schedule || []).map((day) => ({
                 title: day.title,
-                items: (day.items || []).map((item) => ({ title: item.title, address: item.address, startTime: item.startTime }))
+                dayTips: day.dayTips,
+                items: (day.items || []).map((item) => ({
+                    title: item.title,
+                    summary: item.summary,
+                    description: item.description,
+                    address: item.address,
+                    startTime: item.startTime,
+                    endTime: item.endTime,
+                    sourcePlaceId: item.sourcePlaceId ?? item.placeId ?? null
+                }))
             })),
-            hotels: (template.hotels || []).map((hotel) => ({ name: hotel.hotelName, address: hotel.address })),
-            bookingLinks: (template.bookingLinks || []).map((link) => ({ title: link.title, bookingUrl: link.bookingUrl }))
+            hotels: (template.hotels || []).map((hotel) => ({
+                id: hotel.id,
+                hotelName: hotel.hotelName,
+                address: hotel.address,
+                imageUrl: hotel.imageUrl,
+                summary: hotel.summary,
+                bookingLink: hotel.bookingLink || hotel.bookingUrl
+            })),
+            bookingLinks: (template.bookingLinks || []).map((link) => ({
+                id: link.id,
+                title: link.title,
+                placeTitle: link.placeTitle,
+                bookingUrl: link.bookingUrl,
+                imageUrl: link.imageUrl,
+                summary: link.summary
+            }))
         };
         return JSON.stringify(minimal);
     } catch (_) {
@@ -2289,6 +2327,7 @@ async function pasteHotelRecommendationsJson() {
         return;
     }
     state.hotelRecommendations = parsed;
+    markTemplateDirty();
     renderRecommendations();
     renderTripPreview();
     showLoadingOverlay(`מעבד ${parsed.length} המלצות מלון...`);
@@ -2352,6 +2391,7 @@ async function pasteBookingRecommendationsJson() {
         return;
     }
     state.bookingRecommendations = parsed;
+    markTemplateDirty();
     showLoadingOverlay(`משדך ${parsed.length} קישורי הזמנה למקומות שמורים...`);
     try {
         await ensurePublicPlacesLoaded();
@@ -2725,6 +2765,7 @@ function saveHotelFromDialog(event) {
     target.imageUrl = nullable(fields.imageUrl);
     target.lat = number(fields.lat);
     target.lon = number(fields.lon);
+    markTemplateDirty();
     $("hotelEditDialog").close();
     state.editingRecommendation = null;
     renderRecommendations();
@@ -2751,6 +2792,7 @@ function saveBookingFromDialog(event) {
     target.imageCreditUrl = nullable(fields.imageCreditUrl);
     target.lat = number(fields.lat);
     target.lon = number(fields.lon);
+    markTemplateDirty();
     $("bookingEditDialog").close();
     state.editingRecommendation = null;
     renderRecommendations();
@@ -2759,6 +2801,7 @@ function saveBookingFromDialog(event) {
 function removeRecommendation(kind, id) {
     if (kind === "hotel") state.hotelRecommendations = state.hotelRecommendations.filter((item) => item.id !== id);
     if (kind === "booking") state.bookingRecommendations = state.bookingRecommendations.filter((item) => item.id !== id);
+    markTemplateDirty();
     renderRecommendations();
 }
 
@@ -2939,7 +2982,7 @@ async function applySelectedRecommendationImage(image) {
         state.heroImageUrl = imageUrl;
         state.heroPhotographerName = image.photographerName || null;
         state.heroPhotographerUsername = image.photographerUsername || null;
-        state.lastSavedSignature = null;
+        markTemplateDirty();
         renderTripPreview();
         setStatus("tripStatus", "תמונת השער עודכנה.");
         showToast("תמונת השער של הטיול עודכנה.");
@@ -2999,6 +3042,7 @@ async function applySelectedRecommendationImage(image) {
         }
         renderRecommendations();
     }
+    markTemplateDirty();
     setStatus("tripStatus", "התמונה נשמרה ב-R2 ונשמרה בטיוטה.");
     state.imageTarget = null;
     $("recommendationImageDialog").close();
@@ -3597,7 +3641,7 @@ function hasUnsavedTripWork() {
     if (state.view !== "compose") return false;
 
     if (state.parsedTemplate) {
-        const signature = computeTemplateSignature(buildTripTemplatePayload(state.parsedTemplate));
+        const signature = computeTemplateSignature(buildTripTemplatePayload(state.parsedTemplate, state.editingTemplate || {}));
         return !state.lastSavedId || signature !== state.lastSavedSignature;
     }
 

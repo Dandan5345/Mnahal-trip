@@ -498,6 +498,7 @@ html[data-theme="dark"] .pa-root {
 .pa-root .place-image img {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -519,8 +520,12 @@ html[data-theme="dark"] .pa-root {
 .pa-root .place-image .atmosphere-badge {
   position: absolute;
   inset-inline-start: 9px;
-  bottom: 9px;
+  inset-block-end: 9px;
+  inset-inline-end: auto;
+  inset-block-start: auto;
   z-index: 3;
+  width: auto;
+  max-width: min(58%, 180px);
   padding: 3px 9px;
   border-radius: var(--pa-radius-pill);
   background: rgba(0, 0, 0, .55);
@@ -528,32 +533,59 @@ html[data-theme="dark"] .pa-root {
   color: #fff;
   font-size: 10.5px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* image credit badge over the cover */
+/* image credit badge — small pill in corner, never stretches over image */
 .pa-root .image-credit-badge {
   position: absolute;
   inset-inline-end: 9px;
-  bottom: 9px;
-  z-index: 3;
-  max-width: 70%;
+  inset-block-end: 9px;
+  inset-inline-start: auto;
+  inset-block-start: auto;
+  z-index: 4;
+  width: auto;
+  max-width: min(68%, 200px);
   padding: 3px 8px;
-  border-radius: var(--pa-radius-sm);
-  background: rgba(0, 0, 0, .55);
+  border-radius: var(--pa-radius-pill);
+  background: rgba(0, 0, 0, .58);
   backdrop-filter: blur(4px);
   color: #fff;
   font-size: 10px;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 3px;
+  pointer-events: auto;
 }
-.pa-root .image-credit-badge a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
-.pa-root .image-credit-badge span { opacity: .7; }
+.pa-root .image-credit-badge a {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pa-root .image-credit-badge span { opacity: .75; flex: 0 0 auto; }
+.pa-root .image-credit-unsplash {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.pa-root .image-credit-unsplash a,
+.pa-root .image-credit-unsplash span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ---- Card body ---- */
 .pa-root .place-body {
@@ -1429,4 +1461,20 @@ html[data-theme="dark"] .pa-root {
     bottom: 12px;
   }
   .pa-root .trip-toast { min-width: 0; max-width: none; width: 100%; }
+
+  .pa-root .image-credit-badge {
+    max-width: min(62%, 150px);
+    font-size: 9px;
+    padding: 2px 7px;
+  }
+
+  .pa-root .place-image .atmosphere-badge {
+    max-width: min(52%, 130px);
+    font-size: 9.5px;
+  }
+
+  .pa-root .compact-grid .place-image,
+  .pa-root .compact-card .place-image {
+    aspect-ratio: 16 / 9;
+  }
 }

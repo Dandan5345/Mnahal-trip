@@ -4624,8 +4624,8 @@ function imageCreditHtml(item, imageUrl) {
   const name = stripCreditPrefix(item.coverPhotographerName || "");
   const reference = text(item.coverPhotographerUsername);
   if (isWikimediaImageUrl(imageUrl)) {
-    const label = name ? `Wikimedia Commons · ${name}` : "Wikimedia Commons";
-    return `<span class="image-credit-badge image-credit-wikimedia">${escapeHtml(label)}</span>`;
+    const label = name ? `${name} · Wiki` : "Wikimedia";
+    return `<span class="image-credit-badge image-credit-wikimedia" title="${escapeAttr(name ? `Wikimedia Commons · ${name}` : "Wikimedia Commons")}">${escapeHtml(label)}</span>`;
   }
   if (isUnsplashCredit(item)) {
     return `<span class="image-credit-badge image-credit-unsplash"><a href="${escapeAttr(unsplashProfileUrl(reference))}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a><span>/</span><a href="https://unsplash.com/?utm_source=trip_planner&utm_medium=referral" target="_blank" rel="noopener noreferrer">Unsplash</a></span>`;

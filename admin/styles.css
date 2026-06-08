@@ -1568,6 +1568,8 @@ svg {
 }
 
 .place-image img {
+    position: relative;
+    z-index: 1;
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -1575,19 +1577,26 @@ svg {
 
 .image-credit-badge {
     position: absolute;
-    inset-inline-start: 10px;
-    inset-block-start: 10px;
-    max-width: calc(100% - 20px);
-    padding: 5px 9px;
+    inset-inline-end: 10px;
+    inset-block-end: 10px;
+    inset-inline-start: auto;
+    inset-block-start: auto;
+    z-index: 3;
+    width: auto;
+    max-width: min(72%, 220px);
+    padding: 4px 9px;
     border-radius: 999px;
     background: rgba(18, 24, 22, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.18);
     color: #fffdf8;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 700;
+    line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    pointer-events: auto;
+    backdrop-filter: blur(4px);
 }
 
 .image-credit-badge a,
@@ -1604,20 +1613,38 @@ svg {
 .image-credit-unsplash {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.image-credit-unsplash a,
+.image-credit-unsplash span {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .atmosphere-badge {
     position: absolute;
-    inset-inline-end: 10px;
-    inset-block-start: 10px;
-    padding: 5px 9px;
+    inset-inline-start: 10px;
+    inset-block-end: 10px;
+    inset-inline-end: auto;
+    inset-block-start: auto;
+    z-index: 3;
+    padding: 4px 9px;
     border-radius: 999px;
     background: rgba(14, 116, 144, 0.88);
     color: #f0fdfa;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 800;
     border: 1px solid rgba(255, 255, 255, 0.18);
+    max-width: min(58%, 180px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .emoji-cover {
@@ -3169,7 +3196,8 @@ svg {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, transparent 35%, rgba(15, 23, 42, 0.55));
+    z-index: 2;
+    background: linear-gradient(180deg, transparent 55%, rgba(15, 23, 42, 0.38));
     pointer-events: none;
 }
 
@@ -3647,6 +3675,17 @@ svg {
     .trip-schedule-row,
     .reported-place-preview {
         grid-template-columns: 1fr;
+    }
+
+    .image-credit-badge {
+        max-width: min(60%, 150px);
+        font-size: 0.62rem;
+        padding: 3px 7px;
+    }
+
+    .atmosphere-badge {
+        max-width: min(50%, 130px);
+        font-size: 0.62rem;
     }
 }
 
