@@ -207,8 +207,12 @@ function renderPage() {
     document.getElementById("app").innerHTML = createAdminShell({
         activeKey: "trips",
         activeSubKey: state.view,
-        title: state.view === "compose" ? "יצירת טיול" : "טיולים מצב נוכחי",
-        subtitle: state.view === "compose" ? "מקומות, prompt, JSON ושמירה." : "חיפוש, טעינה, עריכה ומחיקה.",
+        title: state.view === "compose"
+            ? (state.lastSavedId && state.parsedTemplate?.tripTitle ? `עריכת טיול: ${state.parsedTemplate.tripTitle}` : "יצירת טיול")
+            : "טיולים מצב נוכחי",
+        subtitle: state.view === "compose"
+            ? (state.lastSavedId ? "עריכה מלאה של כל שלבי הטיול — לו״ז, מלונות, קישורים ושמירה." : "מקומות, prompt, JSON ושמירה.")
+            : "חיפוש, טעינה, עריכה ומחיקה.",
         content: `${state.view === "compose" ? renderComposeView() : renderManageView()}${renderTemplateEditDialog()}${renderHotelEditDialog()}${renderBookingEditDialog()}${renderRecommendationDetailDialog()}${renderRecommendationImageDialog()}${renderChatSetupDialog()}${renderChatDialog()}${renderChatPlacesDialog()}${renderChatDiffDialog()}${renderLoadingOverlay()}${renderToastContainer()}`
     });
 
@@ -1194,6 +1198,14 @@ function init() {
         message: "יש לך טיול או עריכה שלא נשמרו. לצאת מהעמוד בלי לשמור?"
     });
     if (state.view === "manage") loadTemplates();
+    if (state.view === "compose" && state.parsedTemplate && state.lastSavedId) {
+        populateComposeUiFromState();
+        if (state.justLoadedForEdit) {
+            state.justLoadedForEdit = false;
+            setStatus("tripStatus", `עורכים את "${state.parsedTemplate.tripTitle}" — כל השלבים זמינים.`);
+            showToast(`הטיול "${state.parsedTemplate.tripTitle}" נטען לעריכה מלאה`, "success");
+        }
+    }
     renderTripPreview();
     renderRecommendations();
     syncComposeSections();
@@ -1483,6 +1495,7 @@ function syncComposeSections() {
         button.setAttribute("aria-pressed", button.dataset.composeSection === activeSection ? "true" : "false");
     });
     updateComposeStepNav();
+    updateSaveTripButtonLabel();
 }
 
 function getComposeStepIndex(section) {
@@ -1790,7 +1803,7 @@ async function saveTripTemplate() {
         button.disabled = true;
         button.classList.add("is-loading");
     }
-    const template = buildTripTemplatePayload(state.parsedTemplate);
+    const template = buildTripTemplatePayload(state.parsedTemplate, state.editingTemplate || {});
     try {
         const signature = computeTemplateSignature(template);
         if (signature && signature === state.lastSavedSignature && state.lastSavedId) {
@@ -1804,14 +1817,15 @@ async function saveTripTemplate() {
         showLoadingOverlay("שומר תבנית ל-TripTap...");
         setStatus("tripStatus", "שומר תבנית ל-TripTap...");
         const fs = state.firebase.firestore;
-        const ref = state.lastSavedId
+        const isUpdate = Boolean(state.lastSavedId);
+        const ref = isUpdate
             ? fs.doc(state.firebase.db, "trip_templates", state.lastSavedId)
             : fs.doc(fs.collection(state.firebase.db, "trip_templates"));
         await fs.setDoc(ref, { ...template, id: ref.id });
         state.lastSavedSignature = signature;
         state.lastSavedId = ref.id;
-        setStatus("tripStatus", `התבנית נשמרה ב-TripTap (${ref.id}).`);
-        showToast("התבנית נשמרה בהצלחה ב-TripTap! ✓");
+        setStatus("tripStatus", isUpdate ? `התבנית עודכנה ב-TripTap (${ref.id}).` : `התבנית נשמרה ב-TripTap (${ref.id}).`);
+        showToast(isUpdate ? "התבנית עודכנה בהצלחה! ✓" : "התבנית נשמרה בהצלחה ב-TripTap! ✓");
     } catch (error) {
         setStatus("tripStatus", `שמירת התבנית נכשלה: ${error.message}`, true);
         showToast(`השמירה נכשלה: ${error.message}`, "error");
@@ -1967,7 +1981,7 @@ function renderTemplateCard(template) {
                 <p class="compact-card-summary">${escapeHtml(template.description || template.mainDestination || "")}</p>
                 <div class="compact-card-meta"><span>${escapeHtml(template.mainDestination || "")}</span><span>${Number(template.days || 0)} ימים</span></div>
                 <div class="card-actions">
-                    <button class="ghost-action" type="button" data-action="edit"><i data-lucide="square-pen"></i><span>ערוך</span></button>
+                    <button class="ghost-action" type="button" data-action="edit"><i data-lucide="square-pen"></i><span>ערוך ביצירת טיול</span></button>
                     <button class="ghost-action danger-lite" type="button" data-action="delete"><i data-lucide="trash-2"></i><span>מחק</span></button>
                 </div>
             </div>
@@ -1982,7 +1996,209 @@ function handleTemplateAction(templateId, action) {
         deleteEditingTemplate();
         return;
     }
+    if (action === "edit") {
+        openTemplateInCompose(template);
+        return;
+    }
     openTemplateEditDialog(template);
+}
+
+function openTemplateInCompose(template) {
+    if (!template) return;
+    if (state.view === "compose" && hasUnsavedTripWork()) {
+        if (!window.confirm("יש עבודה שלא נשמרה. לפתוח את הטיול לעריכה בכל זאת?")) return;
+    }
+    try {
+        loadTemplateIntoComposeState(template);
+    } catch (error) {
+        setStatus("tripStatus", `לא ניתן לטעון את הטיול לעריכה: ${error.message}`, true);
+        showToast(`שגיאה בטעינת הטיול: ${error.message}`, "error");
+        return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "compose");
+    url.searchParams.set("step", "preview");
+    window.history.replaceState({}, "", url);
+    state.justLoadedForEdit = true;
+    renderPage();
+}
+
+function loadTemplateIntoComposeState(template) {
+    state.editingTemplate = template;
+    state.lastSavedId = template.id;
+    state.destination = template.mainDestination ? {
+        label: template.mainDestination,
+        address: template.city || template.mainDestination,
+        lat: null,
+        lon: null
+    } : null;
+    state.heroImageUrl = template.heroImageUrl || null;
+    state.heroPhotographerName = template.heroPhotographerName || null;
+    state.heroPhotographerUsername = template.heroPhotographerUsername || null;
+    state.parsedTemplate = templateToParsedTemplate(template);
+    state.hotelRecommendations = (template.hotels || []).map(hotelFromTemplatePayload).filter((hotel) => hotel.name);
+    state.bookingRecommendations = (template.bookingLinks || []).map(bookingFromTemplatePayload).filter((booking) => booking.placeTitle || booking.title);
+    state.promptPlaces = (template.places || []).map(placeFromTemplatePayload);
+    state.chat = null;
+    const payload = buildTripTemplatePayload(state.parsedTemplate, template);
+    state.lastSavedSignature = computeTemplateSignature(payload);
+}
+
+function templateToParsedTemplate(template) {
+    const tripCategories = Array.isArray(template.tripCategories) && template.tripCategories.length
+        ? template.tripCategories.map(text).filter(Boolean)
+        : (template.categories || [template.category || "urban"]).map(text).filter(Boolean);
+    const rawHebrew = template.tripCategorieshebrew ?? template.tripCategoriesHebrew;
+    const tripCategoriesHebrew = Array.isArray(rawHebrew) ? rawHebrew.map(text).filter(Boolean) : [];
+    const schedule = Array.isArray(template.schedule) ? template.schedule : [];
+    if (!schedule.length) throw new Error("לתבנית אין לו״ז (schedule).");
+    return {
+        tripTitle: text(template.name) || "טיול",
+        tripDescription: text(template.tripDescription || template.description),
+        whyThisTrip: text(template.whyThisTrip),
+        recommendedStart: text(template.recommendedStart),
+        categories: (template.categories || [template.category || "urban"]).map((item) => normalizeCategoryKey(item)).filter(Boolean),
+        tripCategories,
+        tripCategoriesHebrew: buildHebrewCategoryLabels(tripCategories, tripCategoriesHebrew),
+        days: schedule.map((day, index) => templateScheduleDayToParsedDay(day, index + 1))
+    };
+}
+
+function templateScheduleDayToParsedDay(day, fallbackNumber) {
+    const dayNumber = number(day.dayNumber) || fallbackNumber;
+    const dayTitle = text(day.title || day.dayTitle) || `יום ${dayNumber}`;
+    const dayTips = Array.isArray(day.dayTips) && day.dayTips.length ? day.dayTips.map(text).filter(Boolean) : ["—"];
+    const items = Array.isArray(day.items) ? day.items.map((item, index) => ({
+        id: text(item.id) || `planner_day_${dayNumber}_item_${index + 1}`,
+        title: text(item.title),
+        summary: text(item.summary),
+        description: text(item.description),
+        address: text(item.address),
+        startTime: text(item.startTime),
+        endTime: text(item.endTime),
+        sourcePlaceId: item.sourcePlaceId == null && item.placeId == null ? null : text(item.sourcePlaceId ?? item.placeId),
+        order: number(item.order) ?? index,
+        siteUrl: nullable(item.siteUrl),
+        lat: item.lat == null ? null : number(item.lat),
+        lon: item.lon == null ? null : number(item.lon)
+    })).filter((item) => item.title) : [];
+    return { dayNumber, dayTitle, dayTips, items };
+}
+
+function hotelFromTemplatePayload(hotel) {
+    return {
+        id: text(hotel.id) || crypto.randomUUID(),
+        name: text(hotel.hotelName || hotel.name),
+        address: text(hotel.address),
+        summary: text(hotel.summary || hotel.notes),
+        stars: String(hotel.starRating || hotel.stars || "3"),
+        bookingRating: text(hotel.bookingRatingText || hotel.bookingRating),
+        googleRating: text(hotel.googleRatingText || hotel.googleRating),
+        locationRating: text(hotel.locationRating),
+        kosherFriendly: Boolean(hotel.kosherFriendly),
+        kosherFriendlyReason: text(hotel.kosherFriendlyReason),
+        shabbatFriendly: Boolean(hotel.shabbatFriendly),
+        shabbatFriendlyReason: text(hotel.shabbatFriendlyReason),
+        shabbatKosherNotes: text(hotel.shabbatKosherNotes || hotel.notes),
+        breakfast: text(hotel.breakfast),
+        bookingUrl: text(hotel.bookingLink || hotel.bookingUrl),
+        imageUrl: nullable(hotel.imageUrl),
+        imagePixabayId: tripsPixabayIdValue(hotel.imagePixabayId),
+        imagePixabayPageUrl: nullable(hotel.imagePixabayPageUrl),
+        lat: jsonDouble(hotel, ["lat", "latitude"]),
+        lon: jsonDouble(hotel, ["lon", "lng", "longitude"])
+    };
+}
+
+function bookingFromTemplatePayload(booking) {
+    return {
+        id: text(booking.id) || crypto.randomUUID(),
+        placeId: text(booking.placeId),
+        placeTitle: text(booking.placeTitle),
+        provider: text(booking.provider),
+        title: text(booking.title),
+        summary: text(booking.summary),
+        priceRange: text(booking.priceRange),
+        bookingUrl: text(booking.bookingUrl),
+        destination: text(booking.destination),
+        lat: jsonDouble(booking, ["lat", "latitude"]),
+        lon: jsonDouble(booking, ["lon", "lng", "longitude"]),
+        imageUrl: nullable(booking.imageUrl),
+        imageCredit: nullable(booking.imageCredit),
+        imageCreditUrl: nullable(booking.imageCreditUrl),
+        imagePixabayId: tripsPixabayIdValue(booking.imagePixabayId),
+        imagePixabayPageUrl: nullable(booking.imagePixabayPageUrl),
+        address: text(booking.address || booking.location)
+    };
+}
+
+function placeFromTemplatePayload(place) {
+    return {
+        id: text(place.id),
+        name: text(place.name),
+        destination: text(place.destination || state.destination?.label),
+        type: text(place.type || "place_type_attraction"),
+        shortDescription: text(place.shortDescription || place.description),
+        description: text(place.description),
+        location: text(place.location || place.address),
+        lat: number(place.lat),
+        lon: number(place.lon),
+        website: nullable(place.website),
+        coverImageUrl: nullable(place.coverImageUrl)
+    };
+}
+
+function parsedTemplateToPlannerJson(parsed) {
+    return JSON.stringify({
+        tripTitle: parsed.tripTitle,
+        tripDescription: parsed.tripDescription,
+        whyThisTrip: parsed.whyThisTrip,
+        recommendedStart: parsed.recommendedStart,
+        tripCategories: parsed.tripCategories,
+        tripCategoriesHebrew: parsed.tripCategoriesHebrew,
+        days: parsed.days.map((day) => ({
+            dayNumber: day.dayNumber,
+            dayTitle: day.dayTitle,
+            dayTips: day.dayTips,
+            items: day.items.map((item) => ({
+                startTime: item.startTime,
+                endTime: item.endTime,
+                title: item.title,
+                summary: item.summary,
+                description: item.description,
+                address: item.address,
+                placeId: item.sourcePlaceId
+            }))
+        }))
+    }, null, 2);
+}
+
+function populateComposeUiFromState() {
+    const destination = state.destination?.label || state.editingTemplate?.mainDestination || "";
+    if ($("tripDestinationInput")) $("tripDestinationInput").value = destination;
+    if ($("selectedTripDestination") && destination) {
+        $("selectedTripDestination").innerHTML = `<i data-lucide="map"></i><span>${escapeHtml(state.destination?.address || destination)}</span><b>${escapeHtml(destination)}</b>`;
+    }
+    if ($("tripJsonInput") && state.parsedTemplate) $("tripJsonInput").value = parsedTemplateToPlannerJson(state.parsedTemplate);
+    if ($("tripHotelsJsonInput")) {
+        $("tripHotelsJsonInput").value = state.hotelRecommendations.length
+            ? JSON.stringify({ hotels: state.hotelRecommendations }, null, 2)
+            : "";
+    }
+    if ($("tripBookingsJsonInput")) {
+        $("tripBookingsJsonInput").value = state.bookingRecommendations.length
+            ? JSON.stringify({ bookingLinks: state.bookingRecommendations }, null, 2)
+            : "";
+    }
+    updateSaveTripButtonLabel();
+    refreshIcons();
+}
+
+function updateSaveTripButtonLabel() {
+    const button = $("saveTripTemplateButton");
+    const label = button?.querySelector("span");
+    if (!label) return;
+    label.textContent = state.lastSavedId ? "עדכן תבנית ב-TripTap" : "שמור תבנית ל-TripTap";
 }
 
 function openTemplateEditDialog(template) {

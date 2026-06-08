@@ -149,23 +149,35 @@ export function createAdminShell({ activeKey, activeSubKey = "", title, subtitle
           </button>
         </div>
         <div class="nav-drawer-body">
-          ${NAV_ITEMS.map((item) => `
-            <div class="nav-drawer-group ${item.key === activeKey ? "is-active" : ""}">
-              <a class="nav-drawer-item ${item.key === activeKey ? "is-active" : ""}" href="${item.href}">
-                <i data-lucide="${item.icon}" aria-hidden="true"></i>
-                <span>${item.label}</span>
-              </a>
-              ${(item.subItems || []).length ? `
-                <div class="nav-drawer-sub">
-                  ${item.subItems.map((sub) => `
+          ${NAV_ITEMS.map((item) => {
+            const subItems = item.subItems || [];
+            const hasSub = subItems.length > 0;
+            const isExpanded = item.key === activeKey;
+            if (!hasSub) {
+              return `
+                <div class="nav-drawer-group">
+                  <a class="nav-drawer-item ${item.key === activeKey ? "is-active" : ""}" href="${item.href}">
+                    <i data-lucide="${item.icon}" aria-hidden="true"></i>
+                    <span>${item.label}</span>
+                  </a>
+                </div>`;
+            }
+            return `
+              <div class="nav-drawer-group ${isExpanded ? "is-expanded is-active" : ""}" data-nav-group="${item.key}">
+                <button class="nav-drawer-toggle ${item.key === activeKey ? "is-active" : ""}" type="button" aria-expanded="${isExpanded ? "true" : "false"}" aria-controls="navGroup-${item.key}">
+                  <i data-lucide="${item.icon}" aria-hidden="true"></i>
+                  <span>${item.label}</span>
+                  <i data-lucide="chevron-down" class="nav-drawer-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="nav-drawer-sub" id="navGroup-${item.key}">
+                  ${subItems.map((sub) => `
                     <a class="nav-drawer-subitem ${item.key === activeKey && sub.key === activeSubKey ? "is-active" : ""}" href="${sub.href}" data-sub-key="${sub.key}">
                       <span>${sub.label}</span>
                     </a>
                   `).join("")}
                 </div>
-              ` : ""}
-            </div>
-          `).join("")}
+              </div>`;
+          }).join("")}
         </div>
       </nav>
 
@@ -272,6 +284,15 @@ function bindNavDrawer() {
   closeBtn?.addEventListener("click", closeDrawer);
 
   drawer.addEventListener("click", (event) => {
+    const toggle = event.target?.closest?.(".nav-drawer-toggle");
+    if (toggle) {
+      event.preventDefault();
+      const group = toggle.closest(".nav-drawer-group");
+      if (!group) return;
+      const expanded = group.classList.toggle("is-expanded");
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      return;
+    }
     if (event.target?.closest?.("a[href]")) closeDrawer();
   });
 
