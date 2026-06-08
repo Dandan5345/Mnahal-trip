@@ -6643,3 +6643,114 @@ a,
 .trip-hero-edit-preview { width: 120px; height: 70px; border-radius: 10px; overflow: hidden; background: var(--surface-soft); border: 1px solid var(--border); display: grid; place-items: center; flex: 0 0 auto; }
 .trip-hero-edit-preview img { width: 100%; height: 100%; object-fit: cover; }
 .trip-hero-edit-preview .trip-hero-empty { font-size: 11.5px; flex-direction: column; gap: 3px; }
+
+/* ── Mobile dialog bottom-sheets: pinned header + scrolling body + sticky actions ──
+   Shared by the hotel/attraction edit form, the detail view, and the image
+   picker. Keeps the title, the source tabs and the Save/action bar always
+   visible while only the content region scrolls. */
+@media (max-width: 720px) {
+    dialog.image-dialog {
+        max-height: 94dvh;
+    }
+
+    .image-dialog-shell {
+        max-height: 94dvh;
+        overflow: hidden;
+        padding: 0;
+        gap: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Hide the standalone handle — every dialog gets a consistent one
+       drawn on its header instead. */
+    .image-dialog-handle { display: none; }
+
+    .image-dialog-shell .dialog-header {
+        position: relative;
+        flex: 0 0 auto;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0;
+        padding: 20px 16px 12px;
+        border-bottom: 1px solid var(--line, var(--border));
+        background: var(--surface);
+    }
+
+    .image-dialog-shell .dialog-header::before {
+        content: "";
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 42px;
+        height: 5px;
+        border-radius: 999px;
+        background: var(--border);
+    }
+
+    .image-dialog-shell .dialog-header .icon-button {
+        margin: 0;
+        align-self: center;
+    }
+
+    /* Scrollable content region (one of these per dialog). */
+    .image-dialog-shell .edit-form-grid,
+    .image-dialog-shell .recommendation-detail-body,
+    .image-dialog-shell .image-picker-results,
+    .image-dialog-shell .image-results {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0;
+        padding: 16px;
+    }
+
+    /* Image-picker controls stay fixed between header and results. */
+    .image-dialog-shell .image-source-pills,
+    .image-dialog-shell .image-search-row,
+    .image-dialog-shell .image-gallery-panel {
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 10px 16px;
+    }
+
+    .image-dialog-shell .image-source-pills { padding-bottom: 2px; }
+
+    /* Sticky action bar pinned to the bottom of the sheet. */
+    .image-dialog-shell .action-row {
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        margin: 0;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--line, var(--border));
+        background: var(--surface);
+        gap: 10px;
+    }
+
+    .image-dialog-shell .action-row .primary-action,
+    .image-dialog-shell .action-row .ghost-action {
+        width: auto;
+        flex: 1 1 calc(50% - 5px);
+        min-width: 120px;
+        min-height: 48px;
+        justify-content: center;
+    }
+
+    /* Save is the primary intent — give it the full top row. */
+    .image-dialog-shell .action-row .primary-action {
+        flex: 1 1 100%;
+    }
+
+    /* Roomier edit fields for touch. */
+    .image-dialog-shell .edit-field input,
+    .image-dialog-shell .edit-field textarea,
+    .image-dialog-shell .edit-field select {
+        padding: 12px 14px;
+        border-radius: 12px;
+    }
+}

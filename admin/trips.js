@@ -1962,7 +1962,15 @@ async function prepareTripTemplateImagesForR2(template) {
 async function ensureTripTapImageOnR2(imageUrl, folder, baseName) {
     const normalized = text(imageUrl);
     if (!normalized) return null;
-    return await ensureAdminImageUrlOnR2(state.user, normalized, { folder, baseName });
+    try {
+        return await ensureAdminImageUrlOnR2(state.user, normalized, { folder, baseName });
+    } catch (error) {
+        // R2 re-hosting often fails for manually pasted external links (hotlink
+        // protection / non-direct URLs). Don't fail the whole save — keep the
+        // original link so the new image is still persisted.
+        console.warn("R2 copy failed, keeping original image URL:", normalized, error);
+        return normalized;
+    }
 }
 
 function scheduledTemplatePlaces(parsed) {
@@ -2968,11 +2976,20 @@ async function applySelectedRecommendationImage(image) {
     const targetInfo = recommendationImageR2TargetInfo();
     setStatus("tripStatus", "שומר תמונה ב-R2...");
     let imageUrl;
+    let savedToR2 = true;
     try {
         imageUrl = await ensureAdminImageUrlOnR2(state.user, image.url, targetInfo);
     } catch (error) {
-        setStatus("tripStatus", `שמירת התמונה ב-R2 נכשלה: ${error.message}`, true);
-        return;
+        // Re-hosting on R2 frequently fails for pasted external links (hotlink
+        // protection / non-direct URLs). Don't drop the image — keep the original
+        // link so the new image still gets saved to the draft.
+        imageUrl = text(image.url);
+        if (!imageUrl) {
+            setStatus("tripStatus", `שמירת התמונה נכשלה: ${error.message}`, true);
+            return;
+        }
+        savedToR2 = false;
+        showToast("לא הצלחתי להעתיק ל-R2 — נשמר הקישור המקורי לתמונה.");
     }
     const credit = image.credit || image.source || "";
     const creditUrl = image.pageUrl || "";
@@ -3043,7 +3060,7 @@ async function applySelectedRecommendationImage(image) {
         renderRecommendations();
     }
     markTemplateDirty();
-    setStatus("tripStatus", "התמונה נשמרה ב-R2 ונשמרה בטיוטה.");
+    setStatus("tripStatus", savedToR2 ? "התמונה נשמרה ב-R2 ונשמרה בטיוטה." : "התמונה נשמרה בטיוטה עם הקישור המקורי.");
     state.imageTarget = null;
     $("recommendationImageDialog").close();
 }
