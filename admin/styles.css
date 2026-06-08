@@ -6754,3 +6754,101 @@ a,
         border-radius: 12px;
     }
 }
+
+/* ── Fix-links page (hotels + attractions) ───────────────────────────── */
+.linkfix-panel { display: flex; flex-direction: column; gap: 14px; }
+
+.linkfix-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+.linkfix-selected-count { color: var(--muted); font-size: 13px; font-weight: 600; margin-inline-start: auto; }
+
+.linkfix-ai-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--line, var(--border));
+    border-radius: 14px;
+    background: var(--surface-soft);
+}
+.linkfix-ai-field { display: flex; flex-direction: column; gap: 5px; }
+.linkfix-ai-field > span { font-size: 12px; font-weight: 700; color: var(--muted); }
+.linkfix-ai-row .primary-action { margin-inline-start: auto; }
+
+.linkfix-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+.linkfix-hint i { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 2px; color: var(--coral); }
+
+.linkfix-list { display: flex; flex-direction: column; gap: 10px; }
+
+.linkfix-item {
+    display: flex;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--line, var(--border));
+    border-radius: 14px;
+    background: var(--surface);
+}
+.linkfix-check { flex: 0 0 auto; padding-top: 2px; }
+.linkfix-check input { width: 20px; height: 20px; cursor: pointer; accent-color: var(--coral); }
+
+.linkfix-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.linkfix-title { font-weight: 800; font-size: 15px; color: var(--text); }
+.linkfix-sub { font-size: 12.5px; color: var(--muted); }
+.linkfix-current { font-size: 12.5px; color: var(--muted); word-break: break-all; }
+.linkfix-bad { color: var(--red); font-weight: 600; }
+
+.linkfix-suggestion {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--accent-weak, var(--surface-soft));
+    word-break: break-all;
+}
+.linkfix-suggestion i { width: 15px; height: 15px; color: var(--accent-text, var(--coral)); flex: 0 0 auto; }
+.linkfix-suggestion a { color: var(--accent-text, var(--text)); font-weight: 600; }
+
+.linkfix-manual { display: flex; gap: 8px; margin-top: 2px; }
+.linkfix-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line, var(--border));
+    border-radius: 10px;
+    background: var(--field-bg, var(--surface));
+    color: var(--ink, var(--text));
+    font-family: inherit;
+    font-size: 14px;
+}
+.linkfix-input:focus { outline: 0; border-color: var(--accent, var(--coral)); }
+.linkfix-manual .small-action { flex: 0 0 auto; }
+
+.linkfix-empty { text-align: center; padding: 28px 16px; }
+
+@media (max-width: 720px) {
+    .linkfix-ai-row { flex-direction: column; align-items: stretch; }
+    .linkfix-ai-field { width: 100%; }
+    .linkfix-ai-field .chat-select { width: 100%; min-height: 44px; }
+    .linkfix-ai-row .primary-action { margin-inline-start: 0; width: 100%; min-height: 46px; }
+    .linkfix-item { flex-direction: row; }
+    .linkfix-manual { flex-direction: column; }
+    .linkfix-manual .small-action { width: 100%; min-height: 44px; justify-content: center; }
+    .linkfix-input { font-size: 16px; min-height: 44px; }
+    .linkfix-toolbar .small-action { min-height: 40px; }
+}

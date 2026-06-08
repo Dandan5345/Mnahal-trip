@@ -6,8 +6,10 @@ import {
     uploadAdminImageFileToR2,
     adminPixabaySearch,
     adminPixabayLookupById,
-    adminUnsplashSearch
+    adminUnsplashSearch,
+    cleanBookingUrl
 } from "./shared.js";
+import { createLinkFixer } from "./link-fixer.js";
 
 const HOTEL_R2_FOLDER = "hotel_img";
 
@@ -40,6 +42,11 @@ const HOTEL_VIEW_CONFIG = {
         title: "מלונות מצב נוכחי",
         subtitle: "חיפוש, עריכה ושמירה.",
         actions: ""
+    },
+    "fix-links": {
+        title: "תיקון קישורים",
+        subtitle: "מלונות עם קישור הזמנה ריק או לא תקין.",
+        actions: ""
     }
 };
 
@@ -54,7 +61,7 @@ function renderPage() {
         title: viewConfig.title,
         subtitle: viewConfig.subtitle,
         actions: viewConfig.actions,
-        content: `${state.view === "compose" ? renderComposeView() : renderManageView()}${renderHotelEditDialog()}${renderHotelDetailDialog()}${renderHotelImageDialog()}`
+        content: `${state.view === "compose" ? renderComposeView() : state.view === "fix-links" ? renderHotelFixLinksView() : renderManageView()}${renderHotelEditDialog()}${renderHotelDetailDialog()}${renderHotelImageDialog()}`
     });
 
     attachSharedUi({
@@ -289,11 +296,55 @@ function renderManageView() {
 }
 
 function init() {
+    if (state.view === "fix-links") {
+        initHotelFixLinks();
+        return;
+    }
     bindDestinationSearch();
     bindActions();
     if (state.view === "manage") loadAllSavedHotels();
     renderDrafts();
     refreshIcons();
+}
+
+function renderHotelFixLinksView() {
+    return `<section class="result-section"><div id="hotelFixLinksMount"></div></section>`;
+}
+
+async function initHotelFixLinks() {
+    refreshIcons();
+    state.linkFixer = createLinkFixer({
+        mountId: "hotelFixLinksMount",
+        kind: "hotel",
+        getUser: () => state.user,
+        getItems: () => state.drafts,
+        itemId: (item) => item.id,
+        itemTitle: (item) => item.name,
+        itemSubtitle: (item) => [item.templateDestination || item.destination, item.address].filter(Boolean).join(" · "),
+        itemUrl: (item) => item.bookingUrl || "",
+        itemContext: (item) => [`מלון: ${item.name || ""}`, item.address ? `כתובת: ${item.address}` : "", item.templateDestination ? `יעד: ${item.templateDestination}` : ""].filter(Boolean).join(", "),
+        applyUrl: async (item, url) => {
+            item.bookingUrl = url;
+            await persistSingleHotelDraft(item);
+        },
+        reload: async () => { await loadAllSavedHotels(); }
+    });
+    await loadAllSavedHotels();
+    state.linkFixer.render();
+}
+
+async function persistSingleHotelDraft(draft) {
+    if (!state.firebase || !draft?.templateId) throw new Error("לא נמצאה התבנית המקורית לשמירה.");
+    const fs = state.firebase.firestore;
+    await ensureHotelDraftImagesOnR2([draft]);
+    const template = state.allTemplates.find((item) => text(item.id) === text(draft.templateId));
+    const destination = text(draft.templateDestination || template?.mainDestination);
+    const hotelsForTemplate = state.drafts
+        .filter((item) => text(item.templateId) === text(draft.templateId))
+        .map((item) => hotelToTemplateHotel(item, text(item.templateDestination || destination)));
+    await fs.setDoc(fs.doc(state.firebase.db, "trip_templates", draft.templateId), { hotels: hotelsForTemplate }, { merge: true });
+    const allDraftIndex = state.allDrafts.findIndex((item) => item.id === draft.id);
+    if (allDraftIndex >= 0) Object.assign(state.allDrafts[allDraftIndex], draft);
 }
 
 function bindActions() {
@@ -308,9 +359,24 @@ function bindActions() {
         updateManageSearchSuggestions(event.target.value);
         renderDrafts();
     });
-    $("hotelEditDialog")?.querySelector("form")?.addEventListener("submit", () => {
+    $("hotelEditDialog")?.querySelector("form")?.addEventListener("submit", async () => {
+        const id = state.editingDraftId;
         state.editingDraftId = null;
+        const draft = state.drafts.find((item) => item.id === id);
+        if (draft) {
+            draft.bookingUrl = cleanBookingUrl(draft.bookingUrl);
+            if (draft.imageUrl) draft.imageUrl = cleanBookingUrl(draft.imageUrl);
+        }
         renderDrafts();
+        if (state.view === "manage" && draft?.templateId) {
+            setStatus("hotelStatus", "שומר שינויים...");
+            try {
+                await persistSingleHotelDraft(draft);
+                setStatus("hotelStatus", "השינויים נשמרו. ✓");
+            } catch (error) {
+                setStatus("hotelStatus", `שמירת השינויים נכשלה: ${error.message}`, true);
+            }
+        }
     });
     $("deleteHotelFromDialogButton")?.addEventListener("click", () => {
         if (!state.editingDraftId) return;
@@ -551,6 +617,7 @@ async function loadAllSavedHotels() {
 }
 
 function renderDrafts() {
+    if (!$("hotelDraftCards")) return;
     const visibleDrafts = filteredHotelDrafts();
     $("hotelDraftCountPill").textContent = state.view === "manage"
         ? `${visibleDrafts.length}/${state.drafts.length} מלונות`

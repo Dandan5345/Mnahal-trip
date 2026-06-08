@@ -2290,7 +2290,7 @@ async function saveEditedTemplateFromDialog() {
         days: number(fields.days) || payload.days || 1,
         categories: categories.length ? categories : payload.categories || [payload.category || "urban"],
         category: categories[0] || payload.category || "urban",
-        heroImageUrl: nullable(fields.heroImageUrl),
+        heroImageUrl: nullable(cleanUrl(fields.heroImageUrl)),
         description: nullable(fields.description)
     };
     payload.heroImageUrl = await ensureTripTapImageOnR2(
@@ -2769,8 +2769,8 @@ function saveHotelFromDialog(event) {
     target.shabbatFriendly = Boolean(fields.shabbatFriendly);
     target.shabbatFriendlyReason = text(fields.shabbatFriendlyReason);
     target.shabbatKosherNotes = text(fields.shabbatKosherNotes);
-    target.bookingUrl = text(fields.bookingUrl);
-    target.imageUrl = nullable(fields.imageUrl);
+    target.bookingUrl = cleanUrl(fields.bookingUrl);
+    target.imageUrl = nullable(cleanUrl(fields.imageUrl));
     target.lat = number(fields.lat);
     target.lon = number(fields.lon);
     markTemplateDirty();
@@ -2793,11 +2793,11 @@ function saveBookingFromDialog(event) {
     target.priceRange = text(fields.priceRange);
     target.address = text(fields.address);
     target.destination = text(fields.destination);
-    target.bookingUrl = text(fields.bookingUrl);
+    target.bookingUrl = cleanUrl(fields.bookingUrl);
     target.placeId = text(fields.placeId);
-    target.imageUrl = nullable(fields.imageUrl);
+    target.imageUrl = nullable(cleanUrl(fields.imageUrl));
     target.imageCredit = nullable(fields.imageCredit);
-    target.imageCreditUrl = nullable(fields.imageCreditUrl);
+    target.imageCreditUrl = nullable(cleanUrl(fields.imageCreditUrl));
     target.lat = number(fields.lat);
     target.lon = number(fields.lon);
     markTemplateDirty();
@@ -3283,10 +3283,10 @@ function parseHotelRecommendations(raw) {
         shabbatFriendlyReason: jsonString(item, ["shabbatFriendlyReason"]),
         shabbatKosherNotes: jsonString(item, ["shabbatKosherNotes", "notes"]),
         breakfast: jsonString(item, ["breakfast"]),
-        bookingUrl: jsonString(item, ["bookingUrl", "bookingLink", "url"]),
-        imageUrl: nullable(jsonString(item, ["imageUrl", "photoUrl"])),
+        bookingUrl: jsonUrl(item, ["bookingUrl", "bookingLink", "url"]),
+        imageUrl: nullable(jsonUrl(item, ["imageUrl", "photoUrl"])),
         imagePixabayId: tripsPixabayIdValue(item.imagePixabayId ?? item.pixabayId),
-        imagePixabayPageUrl: nullable(jsonString(item, ["imagePixabayPageUrl", "pixabayPageUrl"])),
+        imagePixabayPageUrl: nullable(jsonUrl(item, ["imagePixabayPageUrl", "pixabayPageUrl"])),
         lat: jsonDouble(item, ["lat", "latitude"]),
         lon: jsonDouble(item, ["lon", "lng", "longitude"])
     })).filter((hotel) => hotel.name);
@@ -3304,15 +3304,15 @@ function parseBookingRecommendations(raw) {
         title: jsonString(item, ["title", "offerTitle"]),
         summary: jsonString(item, ["summary", "description", "whyBookHere"]),
         priceRange: jsonString(item, ["priceRange", "price"]),
-        bookingUrl: jsonString(item, ["bookingUrl", "url"]),
+        bookingUrl: jsonUrl(item, ["bookingUrl", "url"]),
         destination: jsonString(item, ["destination", "city"]),
         lat: jsonDouble(item, ["lat", "latitude"]),
         lon: jsonDouble(item, ["lon", "lng", "longitude"]),
-        imageUrl: nullable(jsonString(item, ["imageUrl"])),
+        imageUrl: nullable(jsonUrl(item, ["imageUrl"])),
         imageCredit: nullable(jsonString(item, ["imageCredit"])),
-        imageCreditUrl: nullable(jsonString(item, ["imageCreditUrl"])),
+        imageCreditUrl: nullable(jsonUrl(item, ["imageCreditUrl"])),
         imagePixabayId: tripsPixabayIdValue(item.imagePixabayId ?? item.pixabayId),
-        imagePixabayPageUrl: nullable(jsonString(item, ["imagePixabayPageUrl", "pixabayPageUrl"])),
+        imagePixabayPageUrl: nullable(jsonUrl(item, ["imagePixabayPageUrl", "pixabayPageUrl"])),
         address: jsonString(item, ["address", "location"])
     })).filter((booking) => (booking.placeTitle || booking.title) && booking.bookingUrl);
 }
@@ -3389,7 +3389,7 @@ function buildHotelRecommendationsPrompt() {
 
 בכל מלון אני צריך summary עשיר של 3-5 משפטים על המלון עצמו: הווייב, החדרים, מתקנים בולטים, למי הוא מתאים, יתרון אמיתי וחיסרון אם יש.
 
-בסוף החזר אך ורק JSON תקין בלי markdown:
+בסוף החזר אך ורק JSON תקין בלי markdown. כל הקישורים חייבים להיות כתובת URL נקייה בלבד (לדוגמה https://example.com/...), בלי סוגריים מרובעים [], בלי תחביר markdown של קישור ובלי טקסט עוטף:
 {
   "hotels": [
     {
@@ -3425,7 +3425,7 @@ ${list}
 
 תנהל איתי שיחה קצרה אם חסרים קישורים או העדפות ספק. לכל מקום שניתן להזמין אליו כרטיס או סיור, מצא קישור הזמנה איכותי וברור.
 
-בסוף החזר אך ורק JSON תקין בלי markdown:
+בסוף החזר אך ורק JSON תקין בלי markdown. כל הקישורים חייבים להיות כתובת URL נקייה בלבד (לדוגמה https://example.com/...), בלי סוגריים מרובעים [], בלי תחביר markdown של קישור ובלי טקסט עוטף:
 {
   "bookingLinks": [
     {
@@ -3469,7 +3469,7 @@ ${placesText}
 5. אין צורך להחזיר לוגיסטיקה כרגע. אל תוסיף טיסות, מלונות, רכבות, צ'ק-אין, צ'ק-אאוט או כל פריט לוגיסטי אחר.
 6. אם מקום הוא מסעדה כשרה מהרשימה, תתייחס לזה במפורש ותשמר את זה בהיגיון של היום.
 
-בסוף התהליך, ורק אחרי שאישרתי לך לבנות את הלו״ז הסופי, החזר אך ורק JSON תקין. בלי markdown, בלי \`\`\`json, בלי הקדמה ובלי הסברים.
+בסוף התהליך, ורק אחרי שאישרתי לך לבנות את הלו״ז הסופי, החזר אך ורק JSON תקין. בלי markdown, בלי \`\`\`json, בלי הקדמה ובלי הסברים. כל הקישורים חייבים להיות כתובת URL נקייה בלבד, בלי סוגריים מרובעים [] ובלי תחביר markdown.
 
 מבנה ה-JSON החדש שחובה להחזיר:
 {
@@ -3633,6 +3633,25 @@ function jsonString(source, keys) {
         if (value != null && text(value)) return text(value);
     }
     return "";
+}
+
+// The AI sometimes returns links wrapped in markdown/auto-link syntax
+// (e.g. "[https://x](https://x)" or "<https://x>"), which would be stored
+// literally and break the link. Strip the wrapping and keep the bare URL.
+function cleanUrl(value) {
+    let raw = text(value);
+    if (!raw) return "";
+    const markdown = raw.match(/\[[^\]]*\]\(\s*([^)\s]+)\s*\)/);
+    if (markdown) return markdown[1].trim();
+    raw = raw.replace(/^<+|>+$/g, "").trim();
+    if (raw.startsWith("[") && raw.endsWith("]") && !raw.includes("(")) {
+        raw = raw.slice(1, -1).trim();
+    }
+    return raw;
+}
+
+function jsonUrl(source, keys) {
+    return cleanUrl(jsonString(source, keys));
 }
 
 function jsonDouble(source, keys) {

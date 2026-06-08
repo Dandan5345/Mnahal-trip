@@ -6,8 +6,10 @@ import {
     uploadAdminImageFileToR2,
     adminPixabaySearch,
     adminPixabayLookupById,
-    adminUnsplashSearch
+    adminUnsplashSearch,
+    cleanBookingUrl
 } from "./shared.js";
+import { createLinkFixer } from "./link-fixer.js";
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const BOOKING_LINK_R2_FOLDER = "link_img";
@@ -43,6 +45,11 @@ const BOOKINGS_VIEW_CONFIG = {
         title: "קישורי אטרקציות מצב נוכחי",
         subtitle: "חיפוש, עריכה ושמירה.",
         actions: ""
+    },
+    "fix-links": {
+        title: "תיקון קישורים",
+        subtitle: "אטרקציות עם קישור הזמנה ריק או לא תקין.",
+        actions: ""
     }
 };
 
@@ -62,7 +69,7 @@ function renderPage() {
         subtitle: viewConfig.subtitle,
         actions: viewConfig.actions,
         content: `
-            ${state.view === "compose" ? renderBookingComposeView() : renderBookingManageView()}
+            ${state.view === "compose" ? renderBookingComposeView() : state.view === "fix-links" ? renderBookingFixLinksView() : renderBookingManageView()}
 
       <dialog class="image-dialog" id="bookingImageDialog">
         <form method="dialog" class="image-dialog-shell">
@@ -286,11 +293,41 @@ function renderBookingManageView() {
 }
 
 function init() {
+    if (state.view === "fix-links") {
+        initBookingFixLinks();
+        return;
+    }
     bindDestinationSearch();
     bindActions();
     if (state.view === "manage") loadAllSavedBookings();
     renderDrafts();
     refreshIcons();
+}
+
+function renderBookingFixLinksView() {
+    return `<section class="result-section"><div id="bookingFixLinksMount"></div></section>`;
+}
+
+async function initBookingFixLinks() {
+    refreshIcons();
+    state.linkFixer = createLinkFixer({
+        mountId: "bookingFixLinksMount",
+        kind: "attraction",
+        getUser: () => state.user,
+        getItems: () => state.drafts,
+        itemId: (item) => item.id,
+        itemTitle: (item) => item.placeTitle || item.title,
+        itemSubtitle: (item) => [item.templateDestination || item.destination, item.provider].filter(Boolean).join(" · "),
+        itemUrl: (item) => item.bookingUrl || "",
+        itemContext: (item) => [`אטרקציה: ${item.placeTitle || item.title || ""}`, item.provider ? `ספק: ${item.provider}` : "", item.templateDestination ? `יעד: ${item.templateDestination}` : "", item.address ? `כתובת: ${item.address}` : ""].filter(Boolean).join(", "),
+        applyUrl: async (item, url) => {
+            item.bookingUrl = url;
+            await persistSingleBookingDraft(item, { rethrow: true });
+        },
+        reload: async () => { await loadAllSavedBookings(); }
+    });
+    await loadAllSavedBookings();
+    state.linkFixer.render();
 }
 
 function bindActions() {
@@ -305,9 +342,24 @@ function bindActions() {
         updateManageSearchSuggestions(event.target.value);
         renderDrafts();
     });
-    $("bookingEditDialog")?.querySelector("form")?.addEventListener("submit", () => {
+    $("bookingEditDialog")?.querySelector("form")?.addEventListener("submit", async () => {
+        const id = state.editingDraftId;
         state.editingDraftId = null;
+        const draft = state.drafts.find((item) => item.id === id);
+        if (draft) {
+            draft.bookingUrl = cleanBookingUrl(draft.bookingUrl);
+            if (draft.imageUrl) draft.imageUrl = cleanBookingUrl(draft.imageUrl);
+        }
         renderDrafts();
+        if (state.view === "manage" && draft?.templateId) {
+            setStatus("bookingStatus", "שומר שינויים...");
+            try {
+                await persistSingleBookingDraft(draft, { rethrow: true });
+                setStatus("bookingStatus", "השינויים נשמרו. ✓");
+            } catch (error) {
+                setStatus("bookingStatus", `שמירת השינויים נכשלה: ${error.message}`, true);
+            }
+        }
     });
     $("deleteBookingFromDialogButton")?.addEventListener("click", () => {
         if (!state.editingDraftId) return;
@@ -641,6 +693,7 @@ async function loadAllSavedBookings() {
 }
 
 function renderDrafts() {
+    if (!$("bookingDraftCards")) return;
     const visibleDrafts = filteredBookingDrafts();
     $("bookingDraftCountPill").textContent = state.view === "manage"
         ? `${visibleDrafts.length}/${state.drafts.length} קישורים`
@@ -810,8 +863,11 @@ async function searchRemoteImages(query) {
     }));
 }
 
-async function persistSingleBookingDraft(draft) {
-    if (!state.firebase || !draft?.templateId) return;
+async function persistSingleBookingDraft(draft, { rethrow = false } = {}) {
+    if (!state.firebase || !draft?.templateId) {
+        if (rethrow) throw new Error("לא נמצאה התבנית המקורית לשמירה.");
+        return;
+    }
     const fs = state.firebase.firestore;
     setStatus("bookingStatus", `שומר תמונה ל-${draft.placeTitle || "האטרקציה"} ב-R2...`);
     try {
@@ -852,6 +908,7 @@ async function persistSingleBookingDraft(draft) {
         setStatus("bookingStatus", `התמונה ל-${draft.placeTitle || "האטרקציה"} נשמרה.`);
     } catch (error) {
         setStatus("bookingStatus", `שמירת התמונה נכשלה: ${error.message}`, true);
+        if (rethrow) throw error;
     }
 }
 

@@ -49,7 +49,8 @@ const NAV_ITEMS = [
     label: "מלונות",
     subItems: [
       { key: "manage", href: "./hotels.html?view=manage", label: "מלונות מצב נוכחי" },
-      { key: "compose", href: "./hotels.html?view=compose", label: "הוספת מלון" }
+      { key: "compose", href: "./hotels.html?view=compose", label: "הוספת מלון" },
+      { key: "fix-links", href: "./hotels.html?view=fix-links", label: "תיקון קישורים" }
     ]
   },
   {
@@ -59,7 +60,8 @@ const NAV_ITEMS = [
     label: "קישורי הזמנות",
     subItems: [
       { key: "manage", href: "./bookings.html?view=manage", label: "קישורי אטרקציות מצב נוכחי" },
-      { key: "compose", href: "./bookings.html?view=compose", label: "הוספת קישור אטרקציה" }
+      { key: "compose", href: "./bookings.html?view=compose", label: "הוספת קישור אטרקציה" },
+      { key: "fix-links", href: "./bookings.html?view=fix-links", label: "תיקון קישורים" }
     ]
   },
   {
@@ -588,6 +590,122 @@ function adminSafeR2Slug(value) {
 function adminRandomUploadId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+// ── Shared admin AI (DeepSeek) + URL helpers ─────────────────────────
+export const ADMIN_AI_MODEL_OPTIONS = [
+  { value: "deepseek-v4-flash", label: "DeepSeek Flash" },
+  { value: "deepseek-v4-pro", label: "DeepSeek Pro" }
+];
+
+export const ADMIN_AI_REASONING_OPTIONS = [
+  { value: "off", label: "ללא חשיבה" },
+  { value: "low", label: "מהירה" },
+  { value: "medium", label: "ממוקדת" },
+  { value: "high", label: "מעמיקה" },
+  { value: "max", label: "מקסימלית" }
+];
+
+function adminAiTemperature(reasoningEffort) {
+  return { low: 0.7, medium: 0.5, high: 0.2, max: 0.1 }[reasoningEffort] ?? 0.3;
+}
+
+export function adminAiModelSelectHtml(id, selected) {
+  return `<select id="${id}" class="chat-select">${ADMIN_AI_MODEL_OPTIONS
+    .map((option) => `<option value="${option.value}"${option.value === selected ? " selected" : ""}>${option.label}</option>`)
+    .join("")}</select>`;
+}
+
+export function adminAiReasoningSelectHtml(id, selected) {
+  return `<select id="${id}" class="chat-select">${ADMIN_AI_REASONING_OPTIONS
+    .map((option) => `<option value="${option.value}"${option.value === selected ? " selected" : ""}>${option.label}</option>`)
+    .join("")}</select>`;
+}
+
+// Non-streaming completion against the admin DeepSeek worker.
+export async function requestAdminAiCompletion(user, { systemPrompt, userPrompt, model = "deepseek-v4-pro", reasoningEffort = "high", maxTokens = 4096 } = {}) {
+  if (!user) throw new Error("חסר משתמש מחובר.");
+  const thinkingEnabled = Boolean(reasoningEffort) && reasoningEffort !== "off";
+  const idToken = await user.getIdToken();
+  const response = await fetch(`${ADMIN_WORKFLOW_URL}/deepseek`, {
+    method: "POST",
+    headers: await withAppCheckHeaders({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    }),
+    body: JSON.stringify({
+      feature: "admin_tool",
+      systemPrompt,
+      userPrompt,
+      maxTokens,
+      preferredModel: model,
+      thinkingEnabled,
+      reasoningEffort: thinkingEnabled ? reasoningEffort : "off",
+      temperature: adminAiTemperature(reasoningEffort),
+      stream: false
+    })
+  });
+  if (!response.ok) throw new Error(await response.text());
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream") || !response.body) {
+    const payload = await response.json().catch(() => null);
+    return String(payload?.text || "").trim();
+  }
+  // Some worker configs always stream — accumulate the deltas into a single string.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+  const consume = (rawEvent) => {
+    const data = rawEvent
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .join("\n")
+      .trim();
+    if (!data || data === "[DONE]") return;
+    let event;
+    try { event = JSON.parse(data); } catch (_) { return; }
+    if (event.error) throw new Error(event.detail ? `${event.error}: ${event.detail}` : event.error);
+    if (event.contentDelta) fullText += event.contentDelta;
+    if (event.text) fullText = event.text;
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const rawEvent of parts) consume(rawEvent);
+  }
+  if (buffer.trim()) consume(buffer);
+  return fullText.trim();
+}
+
+// Strips markdown/auto-link wrapping so a bare URL is stored.
+export function cleanBookingUrl(value) {
+  let raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const markdown = raw.match(/\[[^\]]*\]\(\s*([^)\s]+)\s*\)/);
+  if (markdown) return markdown[1].trim();
+  raw = raw.replace(/^<+|>+$/g, "").trim();
+  if (raw.startsWith("[") && raw.endsWith("]") && !raw.includes("(")) raw = raw.slice(1, -1).trim();
+  return raw;
+}
+
+// A link is "broken" if it is empty or not a structurally valid http(s) URL.
+export function isBrokenBookingUrl(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return true;
+  if (/[\[\]<>\s]/.test(raw)) return true;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (_) {
+    return true;
+  }
+  if (!/^https?:$/.test(parsed.protocol)) return true;
+  return !parsed.hostname.includes(".");
 }
 
 const unsavedWorkGuards = [];
