@@ -1539,3 +1539,75 @@ html[data-theme="dark"] .pa-root {
 .pa-root .fix-address-badge.working { background: var(--pa-info-weak); color: var(--pa-info); }
 .pa-root .fix-address-badge.error { background: var(--pa-danger-weak); color: var(--pa-danger); }
 .pa-root .fix-address-badge.ok { background: var(--pa-success-weak); color: var(--pa-success); }
+
+/* ── Enrich confirm modal (Google Places / Gemini opening hours) ─────── */
+.pa-root .enrich-confirm-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pa-root .enrich-confirm-section { display: flex; flex-direction: column; gap: 8px; }
+.pa-root .enrich-confirm-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--pa-text-3);
+}
+.pa-root .enrich-confirm-rows { display: flex; flex-direction: column; gap: 8px; }
+.pa-root .enrich-confirm-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--pa-border);
+  border-radius: 10px;
+  background: var(--pa-surface-inset);
+}
+.pa-root .enrich-confirm-row > span { font-size: 12px; color: var(--pa-text-3); }
+.pa-root .enrich-confirm-row > b { font-size: 14px; color: var(--pa-text); }
+.pa-root .enrich-confirm-row > pre,
+.pa-root .enrich-confirm-raw {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--pa-text);
+}
+.pa-root .enrich-confirm-raw {
+  padding: 10px 12px;
+  border: 1px solid var(--pa-border);
+  border-radius: 10px;
+  background: var(--pa-surface-2);
+  color: var(--pa-text-2);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pa-root .enrich-confirm-empty { color: var(--pa-text-3); font-size: 13px; margin: 0; }
+
+/* ── Mobile image picker: show full images, no cropping (ג) ──────────── */
+@media (max-width: 640px) {
+  .pa-root .image-dialog-shell .image-results {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    max-height: none;
+  }
+  .pa-root .image-option {
+    border-radius: 14px;
+  }
+  .pa-root .image-option img {
+    aspect-ratio: auto;
+    height: auto;
+    max-height: 70vh;
+    object-fit: contain;
+    background: var(--pa-surface-2);
+  }
+  .pa-root .image-option span {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+}

@@ -103,6 +103,7 @@ const state = {
   imageDraftId: null,
   imageTarget: null,
   imageSource: "unsplash",
+  pendingEnrich: null,
   importProgress: { active: false, total: 0, completed: 0, label: "" },
   brokenPlaces: [],
   brokenLoaded: false,
@@ -1197,6 +1198,23 @@ function renderPage() {
         </form>
       </dialog>
 
+      <dialog class="image-dialog edit-dialog" id="enrichConfirmDialog">
+        <form method="dialog" class="image-dialog-shell edit-dialog-shell">
+          <div class="dialog-header">
+            <div>
+              <p class="eyebrow" id="enrichConfirmSource">אישור עדכון</p>
+              <h2 id="enrichConfirmTitle">מקום</h2>
+            </div>
+            <button class="icon-button" value="cancel" aria-label="סגור"><i data-lucide="x"></i></button>
+          </div>
+          <div class="enrich-confirm-body" id="enrichConfirmBody"></div>
+          <div class="action-row split-actions">
+            <button class="ghost-action" value="cancel">ביטול</button>
+            <button class="primary-action" type="button" id="applyEnrichConfirmButton"><i data-lucide="check"></i><span>אישור</span></button>
+          </div>
+        </form>
+      </dialog>
+
       <dialog class="image-dialog progress-dialog" id="importProgressDialog">
         <form method="dialog" class="image-dialog-shell progress-dialog-shell">
           <div class="dialog-header">
@@ -1492,6 +1510,7 @@ function bindImport() {
   $("parseJsonButton").addEventListener("click", parseJsonInput);
   $("saveAllDraftsButton").addEventListener("click", saveAllDrafts);
   $("saveAllDraftsFooterButton")?.addEventListener("click", saveAllDrafts);
+  $("applyEnrichConfirmButton")?.addEventListener("click", applyEnrichConfirm);
 }
 
 function bindDuplicateTools() {
@@ -3578,16 +3597,19 @@ async function enrichDraftFromGooglePlaces(draft) {
   try {
     await ensureFreshAdminAuthToken();
     const data = await postPlaceLookup(GOOGLE_PLACES_ENDPOINT, draft);
-    if (typeof data.rating === "number") draft.rating = data.rating;
-    if (data.address) draft.location = data.address;
-    if (data.opening_hours) draft.hours = data.opening_hours;
+    const changes = {};
+    if (typeof data.rating === "number") changes.rating = data.rating;
+    if (data.address) changes.location = data.address;
+    if (data.opening_hours) changes.hours = data.opening_hours;
     if (Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
-      draft.lat = data.lat;
-      draft.lon = data.lng;
+      changes.lat = data.lat;
+      changes.lon = data.lng;
     }
-    draft.validationIssues = missingDraftFields(draft);
-    setStatus("importStatus", `${draft.name || "המקום"} עודכן מ-Google Places.`);
-    showToast(`${draft.name || "המקום"} עודכן מ-Google Places.`, "success");
+    const rawLines = [];
+    if (data.name) rawLines.push(`מקור: Google Places (New) · תוצאה מובילה`);
+    if (data.name) rawLines.push(`שם שנמצא: ${data.name}`);
+    if (data.address) rawLines.push(`כתובת מלאה: ${data.address}`);
+    openEnrichConfirm({ draftId: draft.id, source: "Google Places", changes, raw: rawLines.join("\n") });
   } catch (error) {
     const message = error?.message === "not_found" ? "המקום לא נמצא ב-Google Places." : (error?.message || "שגיאה לא ידועה");
     setStatus("importStatus", `משיכת Google Places נכשלה: ${message}`, true);
@@ -3603,14 +3625,64 @@ async function enrichDraftHoursFromGemini(draft) {
   try {
     await ensureFreshAdminAuthToken();
     const data = await postPlaceLookup(GEMINI_PLACE_HOURS_ENDPOINT, draft);
-    if (data.opening_hours) draft.hours = data.opening_hours;
-    draft.validationIssues = missingDraftFields(draft);
-    setStatus("importStatus", `שעות הפתיחה של ${draft.name || "המקום"} עודכנו עם Gemini.`);
-    showToast("שעות הפתיחה עודכנו עם Gemini.", "success");
+    const changes = {};
+    if (data.opening_hours) changes.hours = data.opening_hours;
+    openEnrichConfirm({ draftId: draft.id, source: "Gemini", changes, raw: text(data.raw) });
   } catch (error) {
     setStatus("importStatus", `משיכת שעות מ-Gemini נכשלה: ${error?.message || "שגיאה"}`, true);
     showToast("משיכת שעות מ-Gemini נכשלה.", "error");
   }
+}
+
+function openEnrichConfirm({ draftId, source, changes, raw }) {
+  state.pendingEnrich = { draftId, source, changes: changes || {} };
+  const draft = state.drafts.find((item) => item.id === draftId);
+  $("enrichConfirmSource").textContent = `אישור עדכון מ-${source}`;
+  $("enrichConfirmTitle").textContent = draft?.name || "מקום";
+  const c = changes || {};
+  const rows = [];
+  if (c.rating !== undefined) rows.push(enrichConfirmRow("דירוג", String(c.rating)));
+  if (c.location !== undefined) rows.push(enrichConfirmRow("כתובת", c.location));
+  if (c.lat !== undefined && c.lon !== undefined) rows.push(enrichConfirmRow("קואורדינטות", formatCoords(c.lat, c.lon)));
+  if (c.hours !== undefined) rows.push(enrichConfirmRow("שעות פתיחה", c.hours, true));
+  const answerHtml = rows.length ? rows.join("") : `<p class="enrich-confirm-empty">לא הוחזרו נתונים לעדכון.</p>`;
+  const rawHtml = text(raw) ? `<div class="enrich-confirm-section"><span class="enrich-confirm-label">החשיבה / מקור התשובה</span><pre class="enrich-confirm-raw">${escapeHtml(raw)}</pre></div>` : "";
+  $("enrichConfirmBody").innerHTML = `
+    <div class="enrich-confirm-section">
+      <span class="enrich-confirm-label">התשובה שתוחל לאחר אישור</span>
+      <div class="enrich-confirm-rows">${answerHtml}</div>
+    </div>
+    ${rawHtml}`;
+  const applyButton = $("applyEnrichConfirmButton");
+  if (applyButton) applyButton.disabled = rows.length === 0;
+  $("enrichConfirmDialog")?.showModal();
+  refreshIcons();
+}
+
+function enrichConfirmRow(label, value, isBlock = false) {
+  return `<div class="enrich-confirm-row"><span>${escapeHtml(label)}</span>${isBlock ? `<pre>${escapeHtml(value)}</pre>` : `<b>${escapeHtml(value)}</b>`}</div>`;
+}
+
+function applyEnrichConfirm() {
+  const pending = state.pendingEnrich;
+  if (!pending) return;
+  const draft = state.drafts.find((item) => item.id === pending.draftId);
+  if (!draft) {
+    $("enrichConfirmDialog")?.close();
+    return;
+  }
+  const c = pending.changes || {};
+  if (c.rating !== undefined) draft.rating = c.rating;
+  if (c.location !== undefined) draft.location = c.location;
+  if (c.hours !== undefined) draft.hours = c.hours;
+  if (c.lat !== undefined) draft.lat = c.lat;
+  if (c.lon !== undefined) draft.lon = c.lon;
+  draft.validationIssues = missingDraftFields(draft);
+  state.pendingEnrich = null;
+  $("enrichConfirmDialog")?.close();
+  renderDrafts();
+  setStatus("importStatus", `${draft.name || "המקום"} עודכן מ-${pending.source}.`);
+  showToast(`${draft.name || "המקום"} עודכן מ-${pending.source}.`, "success");
 }
 
 async function checkDraftDuplicate(draft) {
@@ -4450,7 +4522,7 @@ async function searchImages(queryText) {
     refreshIcons();
     return;
   }
-  $("imageResults").innerHTML = images.map((image, index) => `<button class="image-option" type="button" data-image-index="${index}"><img src="${escapeAttr(normalizeImageUrl(image.thumb || image.url) || image.thumb || image.url)}" alt="" referrerpolicy="no-referrer" onerror="this.hidden=true;"><span>${escapeHtml(image.credit || image.source)}</span></button>`).join("") || emptyHtml("לא נמצאו תמונות במקור הזה. נסה מקור אחר או שאילתה אחרת.");
+  $("imageResults").innerHTML = images.map((image, index) => `<button class="image-option" type="button" data-image-index="${index}"><img src="${escapeAttr(normalizeImageUrl(image.thumb || image.url) || image.thumb || image.url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;"><span>${escapeHtml(image.credit || image.source)}</span></button>`).join("") || emptyHtml("לא נמצאו תמונות במקור הזה. נסה מקור אחר או שאילתה אחרת.");
   $("imageResults").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
     applySelectedImage(images[Number(button.dataset.imageIndex)]);
     $("imageDialog").close();
@@ -4537,7 +4609,7 @@ async function fetchWikimediaImages(query) {
   url.searchParams.set("gsrlimit", "12");
   url.searchParams.set("prop", "imageinfo");
   url.searchParams.set("iiprop", "url|extmetadata");
-  url.searchParams.set("iiurlwidth", "700");
+  url.searchParams.set("iiurlwidth", "480");
   url.searchParams.set("format", "json");
   const response = await fetch(url.toString());
   if (!response.ok) throw new Error(`Wikimedia ${response.status}`);
