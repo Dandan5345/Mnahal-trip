@@ -1611,3 +1611,20 @@ html[data-theme="dark"] .pa-root {
     padding: 10px 12px;
   }
 }
+
+/* enrich confirm: sources list + error state */
+.pa-root .enrich-confirm-sources {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pa-root .enrich-confirm-sources li { font-size: 13px; color: var(--pa-text-2); }
+.pa-root .enrich-confirm-sources a { color: var(--pa-accent-text); text-decoration: none; word-break: break-word; }
+.pa-root .enrich-confirm-sources a:hover { text-decoration: underline; }
+.pa-root .enrich-confirm-raw.enrich-confirm-error {
+  background: var(--pa-danger-weak);
+  border-color: var(--pa-danger-border);
+  color: var(--pa-danger);
+}

@@ -3605,15 +3605,13 @@ async function enrichDraftFromGooglePlaces(draft) {
       changes.lat = data.lat;
       changes.lon = data.lng;
     }
-    const rawLines = [];
-    if (data.name) rawLines.push(`מקור: Google Places (New) · תוצאה מובילה`);
-    if (data.name) rawLines.push(`שם שנמצא: ${data.name}`);
-    if (data.address) rawLines.push(`כתובת מלאה: ${data.address}`);
-    openEnrichConfirm({ draftId: draft.id, source: "Google Places", changes, raw: rawLines.join("\n") });
+    const googleText = Array.isArray(data.weekdayDescriptions) && data.weekdayDescriptions.length
+      ? data.weekdayDescriptions.join("\n")
+      : [data.name ? `שם: ${data.name}` : "", data.address ? `כתובת: ${data.address}` : ""].filter(Boolean).join("\n");
+    openEnrichConfirm({ draftId: draft.id, source: "Google Places", changes, raw: googleText });
   } catch (error) {
     const message = error?.message === "not_found" ? "המקום לא נמצא ב-Google Places." : (error?.message || "שגיאה לא ידועה");
-    setStatus("importStatus", `משיכת Google Places נכשלה: ${message}`, true);
-    showToast("משיכת Google Places נכשלה.", "error");
+    openEnrichConfirm({ draftId: draft.id, source: "Google Places", error: message });
   }
 }
 
@@ -3627,33 +3625,53 @@ async function enrichDraftHoursFromGemini(draft) {
     const data = await postPlaceLookup(GEMINI_PLACE_HOURS_ENDPOINT, draft);
     const changes = {};
     if (data.opening_hours) changes.hours = data.opening_hours;
-    openEnrichConfirm({ draftId: draft.id, source: "Gemini", changes, raw: text(data.raw) });
+    openEnrichConfirm({
+      draftId: draft.id,
+      source: "Gemini",
+      changes,
+      thinking: text(data.thinking),
+      sources: Array.isArray(data.sources) ? data.sources : [],
+      raw: text(data.raw)
+    });
   } catch (error) {
-    setStatus("importStatus", `משיכת שעות מ-Gemini נכשלה: ${error?.message || "שגיאה"}`, true);
-    showToast("משיכת שעות מ-Gemini נכשלה.", "error");
+    openEnrichConfirm({ draftId: draft.id, source: "Gemini", error: error?.message || "שגיאה לא ידועה" });
   }
 }
 
-function openEnrichConfirm({ draftId, source, changes, raw }) {
-  state.pendingEnrich = { draftId, source, changes: changes || {} };
+function openEnrichConfirm({ draftId, source, changes, thinking, sources, raw, error }) {
+  state.pendingEnrich = error ? null : { draftId, source, changes: changes || {} };
   const draft = state.drafts.find((item) => item.id === draftId);
-  $("enrichConfirmSource").textContent = `אישור עדכון מ-${source}`;
+  $("enrichConfirmSource").textContent = error ? `המשיכה מ-${source} נכשלה` : `אישור עדכון מ-${source}`;
   $("enrichConfirmTitle").textContent = draft?.name || "מקום";
+  const applyButton = $("applyEnrichConfirmButton");
+  if (error) {
+    $("enrichConfirmBody").innerHTML = `<div class="enrich-confirm-section"><span class="enrich-confirm-label">שגיאה</span><pre class="enrich-confirm-raw enrich-confirm-error">${escapeHtml(error)}</pre></div>`;
+    if (applyButton) applyButton.disabled = true;
+    $("enrichConfirmDialog")?.showModal();
+    refreshIcons();
+    return;
+  }
   const c = changes || {};
   const rows = [];
   if (c.rating !== undefined) rows.push(enrichConfirmRow("דירוג", String(c.rating)));
   if (c.location !== undefined) rows.push(enrichConfirmRow("כתובת", c.location));
   if (c.lat !== undefined && c.lon !== undefined) rows.push(enrichConfirmRow("קואורדינטות", formatCoords(c.lat, c.lon)));
   if (c.hours !== undefined) rows.push(enrichConfirmRow("שעות פתיחה", c.hours, true));
-  const answerHtml = rows.length ? rows.join("") : `<p class="enrich-confirm-empty">לא הוחזרו נתונים לעדכון.</p>`;
-  const rawHtml = text(raw) ? `<div class="enrich-confirm-section"><span class="enrich-confirm-label">החשיבה / מקור התשובה</span><pre class="enrich-confirm-raw">${escapeHtml(raw)}</pre></div>` : "";
-  $("enrichConfirmBody").innerHTML = `
-    <div class="enrich-confirm-section">
-      <span class="enrich-confirm-label">התשובה שתוחל לאחר אישור</span>
-      <div class="enrich-confirm-rows">${answerHtml}</div>
-    </div>
-    ${rawHtml}`;
-  const applyButton = $("applyEnrichConfirmButton");
+  const sections = [];
+  sections.push(`<div class="enrich-confirm-section"><span class="enrich-confirm-label">התשובה שתוחל לאחר אישור</span><div class="enrich-confirm-rows">${rows.length ? rows.join("") : `<p class="enrich-confirm-empty">לא הוחזרו נתונים לעדכון.</p>`}</div></div>`);
+  if (text(thinking)) {
+    sections.push(`<div class="enrich-confirm-section"><span class="enrich-confirm-label">החשיבה של המודל</span><pre class="enrich-confirm-raw">${escapeHtml(thinking)}</pre></div>`);
+  }
+  if (text(raw)) {
+    sections.push(`<div class="enrich-confirm-section"><span class="enrich-confirm-label">מה ${escapeHtml(source)} החזיר</span><pre class="enrich-confirm-raw">${escapeHtml(raw)}</pre></div>`);
+  }
+  if (Array.isArray(sources) && sources.length) {
+    const items = sources.map((item) => item.uri
+      ? `<li><a href="${escapeAttr(item.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title || item.uri)}</a></li>`
+      : `<li>${escapeHtml(item.title || "")}</li>`).join("");
+    sections.push(`<div class="enrich-confirm-section"><span class="enrich-confirm-label">מקורות (Google Maps)</span><ul class="enrich-confirm-sources">${items}</ul></div>`);
+  }
+  $("enrichConfirmBody").innerHTML = sections.join("");
   if (applyButton) applyButton.disabled = rows.length === 0;
   $("enrichConfirmDialog")?.showModal();
   refreshIcons();
@@ -4609,7 +4627,7 @@ async function fetchWikimediaImages(query) {
   url.searchParams.set("gsrlimit", "12");
   url.searchParams.set("prop", "imageinfo");
   url.searchParams.set("iiprop", "url|extmetadata");
-  url.searchParams.set("iiurlwidth", "480");
+  url.searchParams.set("iiurlwidth", "700");
   url.searchParams.set("format", "json");
   const response = await fetch(url.toString());
   if (!response.ok) throw new Error(`Wikimedia ${response.status}`);
