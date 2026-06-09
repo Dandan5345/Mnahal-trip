@@ -57,7 +57,7 @@ const state = {
   firebase: null,
   user: null,
   view: "current",
-  destinations: { import: null, duplicates: null, delete: null, currentFilter: null },
+  destinations: { import: null, duplicates: null, delete: null, currentFilter: null, fixAddress: null },
   currentPlaces: [],
   currentSearch: "",
   currentRadiusKm: 50,
@@ -78,6 +78,14 @@ const state = {
   addressFixTimer: null,
   addressFixSeq: 0,
   addressSearchCache: new Map(),
+  fixAddressPlaces: [],
+  selectedFixAddressIds: new Set(),
+  fixAddressRadiusKm: 50,
+  fixAddressRefreshing: false,
+  fixAddressModalPlaceId: null,
+  fixAddressModalSelection: null,
+  fixAddressModalTimer: null,
+  fixAddressModalSeq: 0,
   reviewingDraftId: null,
   expandedDraftSearchId: null,
   duplicatePlaces: [],
@@ -131,6 +139,9 @@ const DEEPSEEK_REASONING_OPTIONS = [
 ];
 const DUPLICATE_AI_ENDPOINT = `${WORKFLOW_URL}/deepseek`;
 const OPENING_HOURS_AI_ENDPOINT = `${WORKFLOW_URL}/deepseek`;
+const GOOGLE_PLACES_ENDPOINT = `${WORKFLOW_URL}/google-places`;
+const GEMINI_PLACE_HOURS_ENDPOINT = `${WORKFLOW_URL}/gemini-place-hours`;
+const CHECK_WEBSITE_HOURS = "מומלץ לבדוק באתר";
 const BROKEN_IMAGE_SCAN_CONCURRENCY = 6;
 const BROKEN_IMAGE_RENDER_THROTTLE_MS = 120;
 const IMAGE_PROBE_TIMEOUT_MS = 20000;
@@ -284,6 +295,11 @@ const PLACES_VIEW_CONFIG = {
         <span>טען מקומות</span>
       </button>
     `
+  },
+  "fix-addresses": {
+    title: "תיקון כתובות",
+    subtitle: "משיכת מקומות לפי רדיוס, מחיקת קואורדינטות ישנות ומשיכה מחדש מ-Photon לפי הכתובת.",
+    actions: ""
   },
   duplicates: {
     title: "מחיקת כפילויות",
@@ -573,7 +589,6 @@ function renderPage() {
               <span>destination</span>
               <span>category</span>
               <span>address</span>
-              <span>lat/lon</span>
               <span>description</span>
               <span>image_search_query</span>
             </div>
@@ -941,6 +956,74 @@ function renderPage() {
         </section>
       </div>
 
+      <div class="tool-view ${activeView === "fix-addresses" ? "is-active" : ""}" data-tool-view="fix-addresses">
+        <div class="workspace-grid single-search-grid">
+          <article class="panel wide-panel">
+            <div class="panel-heading">
+              <span class="panel-icon teal"><i data-lucide="map-pinned" aria-hidden="true"></i></span>
+              <div>
+                <h2>תיקון כתובות וקואורדינטות</h2>
+                <p>בחר נקודת ייחוס, משוך את כל המקומות ברדיוס, ורענן קואורדינטות מ-Photon לפי הכתובת השמורה.</p>
+              </div>
+            </div>
+            <div class="field-block">
+              <label for="fixAddressDestinationInput">נקודת ייחוס (עיר/כתובת)</label>
+              <div class="field-mini-toolbar">
+                <button class="mini-toggle" type="button" id="translateFixAddressDestinationButton">
+                  <i data-lucide="languages" aria-hidden="true"></i>
+                  <span>תרגם לאנגלית</span>
+                </button>
+              </div>
+              <div class="search-input-row">
+                <i data-lucide="radar" aria-hidden="true"></i>
+                <input id="fixAddressDestinationInput" type="text" placeholder="לדוגמה: Vienna, וינה, Rome" autocomplete="off" />
+              </div>
+              <div class="suggestions" id="fixAddressDestinationSuggestions"></div>
+            </div>
+            <div class="selected-place" id="selectedFixAddressDestination">
+              <i data-lucide="radar" aria-hidden="true"></i>
+              <span>בחר נקודה מתוך ההשלמה האוטומטית של Photon.</span>
+            </div>
+            <div class="field-block">
+              <label for="fixAddressRadiusRange">רדיוס משיכה</label>
+              <div class="range-row">
+                <input id="fixAddressRadiusRange" type="range" min="1" max="300" step="1" value="50" />
+                <b id="fixAddressRadiusValue">50 ק"מ</b>
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="primary-action" type="button" id="loadFixAddressPlacesButton">
+                <i data-lucide="download-cloud" aria-hidden="true"></i>
+                <span>משיכה</span>
+              </button>
+              <button class="ghost-action" type="button" id="selectFixAddressAllButton">
+                <i data-lucide="check-square" aria-hidden="true"></i>
+                <span>בחר/בטל הכל</span>
+              </button>
+            </div>
+            <p class="status-line" id="fixAddressStatus"></p>
+          </article>
+        </div>
+
+        <section class="result-section">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">מקומות ברדיוס</p>
+              <h2>בחר מקומות ורענן כתובת</h2>
+            </div>
+            <div class="action-row tight">
+              <span class="count-pill" id="fixAddressLoadedPill">0 מקומות</span>
+              <span class="count-pill" id="fixAddressSelectedPill">0 מסומנים</span>
+              <button class="primary-action" type="button" id="refreshFixAddressButton">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>רענן כתובת</span>
+              </button>
+            </div>
+          </div>
+          <div class="cards-grid compact-grid" id="fixAddressCards"></div>
+        </section>
+      </div>
+
       <dialog class="image-dialog" id="imageDialog">
         <form method="dialog" class="image-dialog-shell">
           <div class="dialog-header">
@@ -1085,6 +1168,35 @@ function renderPage() {
         </form>
       </dialog>
 
+      <dialog class="image-dialog address-fix-dialog" id="fixAddressDialog">
+        <form method="dialog" class="image-dialog-shell address-fix-shell">
+          <div class="dialog-header">
+            <div>
+              <p class="eyebrow">תיקון כתובת ידני</p>
+              <h2 id="fixAddressModalTitle">בחירת כתובת</h2>
+            </div>
+            <button class="icon-button" value="cancel" aria-label="סגור"><i data-lucide="x"></i></button>
+          </div>
+          <div class="field-block">
+            <label for="fixAddressModalInput">כתובת לחיפוש</label>
+            <div class="search-input-row">
+              <i data-lucide="map-pin" aria-hidden="true"></i>
+              <input id="fixAddressModalInput" type="text" placeholder="כתוב כתובת מדויקת ובחר מההשלמה האוטומטית" autocomplete="off" />
+            </div>
+            <div class="suggestions" id="fixAddressModalSuggestions"></div>
+          </div>
+          <div class="selected-place" id="selectedFixAddressModal">
+            <i data-lucide="radar" aria-hidden="true"></i>
+            <span>חובה לבחור כתובת מתוך ההשלמה האוטומטית כדי לעדכן קואורדינטות.</span>
+          </div>
+          <p class="status-line" id="fixAddressModalStatus"></p>
+          <div class="action-row split-actions">
+            <button class="ghost-action" type="button" id="searchFixAddressWebButton"><i data-lucide="globe"></i><span>חיפוש באינטרנט</span></button>
+            <button class="primary-action" type="button" id="applyFixAddressModalButton"><i data-lucide="check"></i><span>עדכן ושמור</span></button>
+          </div>
+        </form>
+      </dialog>
+
       <dialog class="image-dialog progress-dialog" id="importProgressDialog">
         <form method="dialog" class="image-dialog-shell progress-dialog-shell">
           <div class="dialog-header">
@@ -1138,6 +1250,7 @@ function init() {
   bindRefreshImages();
   bindApprovalTools();
   bindImport();
+  bindFixAddressTools();
   bindDuplicateTools();
   bindDeleteTools();
   bindImageDialog();
@@ -1418,6 +1531,298 @@ function bindDeleteTools() {
   $("loadDeletePlacesButton").addEventListener("click", () => loadPlacesFor("delete"));
   $("selectDeleteAllButton").addEventListener("click", () => toggleAll("delete"));
   $("deleteSelectedPlacesButton").addEventListener("click", () => deleteSelected("delete"));
+}
+
+function bindFixAddressTools() {
+  const input = $("fixAddressDestinationInput");
+  if (input) setupDestinationSearch("fixAddress", input, $("fixAddressDestinationSuggestions"), $("selectedFixAddressDestination"));
+  $("translateFixAddressDestinationButton")?.addEventListener("click", async (event) => {
+    const translated = await translateInputValueToEnglish("fixAddressDestinationInput", event.currentTarget);
+    if (translated) $("fixAddressDestinationInput")?.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  $("fixAddressRadiusRange")?.addEventListener("input", (event) => {
+    state.fixAddressRadiusKm = Number(event.target.value || 50);
+    $("fixAddressRadiusValue").textContent = `${state.fixAddressRadiusKm} ק"מ`;
+  });
+  $("loadFixAddressPlacesButton")?.addEventListener("click", loadFixAddressPlaces);
+  $("selectFixAddressAllButton")?.addEventListener("click", toggleAllFixAddress);
+  $("refreshFixAddressButton")?.addEventListener("click", refreshSelectedFixAddresses);
+  bindFixAddressModal();
+}
+
+async function loadFixAddressPlaces() {
+  if (!state.user) {
+    setStatus("fixAddressStatus", "צריך להתחבר לפני משיכת מקומות.", true);
+    return;
+  }
+  const dest = state.destinations.fixAddress;
+  if (!dest?.lat || !dest?.lon) {
+    setStatus("fixAddressStatus", "בחר נקודת ייחוס מההשלמה האוטומטית לפני משיכה.", true);
+    return;
+  }
+  setStatus("fixAddressStatus", "מושך מקומות...");
+  let places = [];
+  try {
+    places = await fetchPlacesByRadius(dest.lat, dest.lon, state.fixAddressRadiusKm);
+  } catch (error) {
+    setStatus("fixAddressStatus", `המשיכה נכשלה: ${error.message}`, true);
+    return;
+  }
+  places.forEach((place) => { place.addressFixStatus = null; });
+  state.fixAddressPlaces = places.sort((a, b) => text(a.name).localeCompare(text(b.name), "he"));
+  state.selectedFixAddressIds.clear();
+  renderFixAddressPlaces();
+  setStatus("fixAddressStatus", `נמשכו ${places.length} מקומות ברדיוס ${state.fixAddressRadiusKm} ק"מ מ-${dest.label}.`);
+}
+
+function toggleAllFixAddress() {
+  const places = state.fixAddressPlaces;
+  const set = state.selectedFixAddressIds;
+  const allSelected = places.length > 0 && places.every((place) => set.has(place.id));
+  set.clear();
+  if (!allSelected) places.forEach((place) => set.add(place.id));
+  renderFixAddressPlaces();
+}
+
+function renderFixAddressPlaces() {
+  if ($("fixAddressLoadedPill")) $("fixAddressLoadedPill").textContent = `${state.fixAddressPlaces.length} מקומות`;
+  if ($("fixAddressSelectedPill")) $("fixAddressSelectedPill").textContent = `${state.selectedFixAddressIds.size} מסומנים`;
+  const container = $("fixAddressCards");
+  if (!container) return;
+  container.innerHTML = state.fixAddressPlaces.map(renderFixAddressCard).join("") || emptyHtml("אין מקומות. בחר נקודת ייחוס ולחץ משיכה.");
+  container.querySelectorAll("[data-fix-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+    checkbox.checked ? state.selectedFixAddressIds.add(checkbox.dataset.fixSelect) : state.selectedFixAddressIds.delete(checkbox.dataset.fixSelect);
+    if ($("fixAddressSelectedPill")) $("fixAddressSelectedPill").textContent = `${state.selectedFixAddressIds.size} מסומנים`;
+  }));
+  container.querySelectorAll("[data-fix-open]").forEach((card) => card.addEventListener("click", (event) => {
+    if (event.target.closest(".check-row")) return;
+    openFixAddressDialog(card.dataset.fixOpen);
+  }));
+  syncFixAddressRefreshButton();
+  refreshIcons();
+}
+
+function renderFixAddressCard(place) {
+  const status = place.addressFixStatus;
+  const isNotFound = status === "not_found";
+  const isWorking = status === "working";
+  const isOk = status === "ok";
+  const coords = place.lat != null && place.lon != null ? formatCoords(place.lat, place.lon) : "אין קואורדינטות";
+  const badge = isWorking
+    ? `<span class="fix-address-badge working"><i data-lucide="loader-circle" aria-hidden="true"></i>מרענן…</span>`
+    : isNotFound
+      ? `<span class="fix-address-badge error"><i data-lucide="triangle-alert" aria-hidden="true"></i>לא נמצא — לחץ לתיקון ידני</span>`
+      : isOk
+        ? `<span class="fix-address-badge ok"><i data-lucide="check" aria-hidden="true"></i>עודכן</span>`
+        : "";
+  return `<article class="place-card fix-address-card ${isNotFound ? "is-not-found" : ""}" ${isNotFound ? `data-fix-open="${place.id}"` : ""}>
+    ${imageHtml(place)}
+    <div class="place-body">
+      <label class="check-row"><input type="checkbox" data-fix-select="${place.id}" ${state.selectedFixAddressIds.has(place.id) ? "checked" : ""} /> בחירה</label>
+      <h3>${escapeHtml(place.name || "ללא שם")}</h3>
+      <div class="place-meta">${escapeHtml(place.location || "אין כתובת")}</div>
+      <small class="place-meta">${escapeHtml(coords)}</small>
+      ${badge}
+    </div>
+  </article>`;
+}
+
+function syncFixAddressRefreshButton() {
+  const button = $("refreshFixAddressButton");
+  if (!button) return;
+  button.disabled = state.fixAddressRefreshing;
+  button.innerHTML = state.fixAddressRefreshing
+    ? `<i data-lucide="loader-circle" aria-hidden="true"></i><span>מרענן כתובות…</span>`
+    : `<i data-lucide="refresh-cw" aria-hidden="true"></i><span>רענן כתובת</span>`;
+}
+
+async function refreshSelectedFixAddresses() {
+  if (state.fixAddressRefreshing) return;
+  if (!state.user) {
+    setStatus("fixAddressStatus", "צריך להתחבר לפני רענון כתובות.", true);
+    return;
+  }
+  const selected = state.fixAddressPlaces.filter((place) => state.selectedFixAddressIds.has(place.id));
+  if (!selected.length) {
+    setStatus("fixAddressStatus", "בחר לפחות מקום אחד לרענון.", true);
+    return;
+  }
+  state.fixAddressRefreshing = true;
+  syncFixAddressRefreshButton();
+  const total = selected.length;
+  let ok = 0;
+  let notFound = 0;
+  let completed = 0;
+  try {
+    await ensureFreshAdminAuthToken();
+    await mapWithConcurrency(selected, 5, async (place) => {
+      place.addressFixStatus = "working";
+      renderFixAddressPlaces();
+      const found = await refreshSinglePlaceAddress(place);
+      if (found) ok += 1; else notFound += 1;
+      completed += 1;
+      setStatus("fixAddressStatus", `מרענן... ${completed}/${total} (נמצאו ${ok}, לא נמצאו ${notFound}).`);
+      renderFixAddressPlaces();
+    });
+    setStatus("fixAddressStatus", `הרענון הסתיים. ${ok} עודכנו, ${notFound} לא נמצאו וצריכים תיקון ידני.`, notFound > 0);
+    showToast(notFound ? `${ok} עודכנו, ${notFound} לא נמצאו.` : `${ok} כתובות עודכנו.`, notFound ? "warning" : "success");
+  } catch (error) {
+    setStatus("fixAddressStatus", `הרענון נכשל: ${error?.message || "שגיאה"}`, true);
+  } finally {
+    state.fixAddressRefreshing = false;
+    renderFixAddressPlaces();
+  }
+}
+
+// מוחק את הקואורדינטות הישנות מ-Firestore ומושך מחדש מ-Photon לפי הכתובת השמורה.
+async function refreshSinglePlaceAddress(place) {
+  const fs = state.firebase.firestore;
+  const ref = fs.doc(state.firebase.db, "public_places", place.id);
+  place.lat = null;
+  place.lon = null;
+  const geo = await geocodePlaceByAddress(place);
+  if (geo) {
+    place.lat = geo.lat;
+    place.lon = geo.lon;
+    place.addressFixStatus = "ok";
+    await fs.setDoc(ref, { lat: geo.lat, lon: geo.lon, updatedAt: fs.serverTimestamp() }, { merge: true });
+    return true;
+  }
+  place.addressFixStatus = "not_found";
+  await fs.setDoc(ref, { lat: null, lon: null, updatedAt: fs.serverTimestamp() }, { merge: true });
+  return false;
+}
+
+async function geocodePlaceByAddress(place) {
+  const queries = [
+    place.location,
+    [place.location, place.destination].filter(Boolean).join(", "),
+    [place.name, place.destination, place.location].filter(Boolean).join(" "),
+    [place.name, place.destination].filter(Boolean).join(" ")
+  ].map(text).filter(Boolean);
+  const addressQuery = text(place.location);
+  for (const query of queries) {
+    let results = [];
+    try {
+      results = await searchAddress(query);
+    } catch (_) {
+      results = [];
+    }
+    if (!results.length) continue;
+    const preferred = chooseBestAddressResult(results, place) || (query === addressQuery ? results[0] : null);
+    if (!preferred) continue;
+    const normalized = await normalizeSelectedDestination(preferred);
+    if (normalized.lat == null || normalized.lon == null) continue;
+    return { lat: normalized.lat, lon: normalized.lon, address: normalized.address };
+  }
+  return null;
+}
+
+function bindFixAddressModal() {
+  const input = $("fixAddressModalInput");
+  const suggestions = $("fixAddressModalSuggestions");
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+  input.addEventListener("input", () => {
+    window.clearTimeout(state.fixAddressModalTimer);
+    state.fixAddressModalSelection = null;
+    state.fixAddressModalSeq += 1;
+    const currentSeq = state.fixAddressModalSeq;
+    const query = input.value.trim();
+    if ($("selectedFixAddressModal")) {
+      $("selectedFixAddressModal").innerHTML = `<i data-lucide="radar" aria-hidden="true"></i><span>בחר כתובת מתוך ההשלמה האוטומטית.</span>`;
+    }
+    if (query.length < 2) {
+      suggestions.innerHTML = "";
+      return;
+    }
+    suggestions.innerHTML = `<div class="suggestion-empty">מחפש כתובת...</div>`;
+    state.fixAddressModalTimer = window.setTimeout(async () => {
+      let results = [];
+      try {
+        results = await searchAddress(query);
+      } catch (error) {
+        setStatus("fixAddressModalStatus", `חיפוש הכתובת נכשל: ${error.message}`, true);
+      }
+      if (currentSeq !== state.fixAddressModalSeq) return;
+      if (!results.length) {
+        suggestions.innerHTML = `<div class="suggestion-empty">לא נמצאו תוצאות. נסה לכתוב שם מקום מלא יותר או עיר.</div>`;
+        return;
+      }
+      suggestions.innerHTML = results.map((item, index) => `
+        <button class="suggestion-item" type="button" data-fix-modal-index="${index}">
+          <span>${escapeHtml(shortPlaceLabel(item))}<br><small>${escapeHtml(item.display_name || "")}</small></span>
+          <b>${escapeHtml(item.sourceLabel || "OpenStreetMap")}</b>
+          <i data-lucide="chevron-left"></i>
+        </button>
+      `).join("");
+      suggestions.querySelectorAll("[data-fix-modal-index]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const item = results[Number(button.dataset.fixModalIndex)];
+          const normalized = await normalizeSelectedDestination(item);
+          state.fixAddressModalSelection = normalized;
+          input.value = normalized.address || normalized.label;
+          suggestions.innerHTML = "";
+          $("selectedFixAddressModal").innerHTML = `<i data-lucide="map"></i><span>${escapeHtml(normalized.address)}</span><b>${escapeHtml(formatCoords(normalized.lat, normalized.lon))}</b>`;
+          setStatus("fixAddressModalStatus", "כתובת נבחרה. לחץ עדכן ושמור.");
+          refreshIcons();
+        });
+      });
+      refreshIcons();
+    }, 140);
+  });
+  $("applyFixAddressModalButton")?.addEventListener("click", applyFixAddressModalFix);
+  $("searchFixAddressWebButton")?.addEventListener("click", () => {
+    const place = state.fixAddressPlaces.find((item) => item.id === state.fixAddressModalPlaceId);
+    if (!place) return;
+    const query = [place.name, place.location, place.destination].filter(Boolean).join(" ");
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
+  });
+}
+
+function openFixAddressDialog(id) {
+  const place = state.fixAddressPlaces.find((item) => item.id === id);
+  if (!place) return;
+  state.fixAddressModalPlaceId = id;
+  state.fixAddressModalSelection = null;
+  $("fixAddressModalTitle").textContent = place.name || "בחירת כתובת";
+  $("fixAddressModalInput").value = [place.name, place.location, place.destination].filter(Boolean).join(" ");
+  $("fixAddressModalSuggestions").innerHTML = "";
+  $("selectedFixAddressModal").innerHTML = `<i data-lucide="radar" aria-hidden="true"></i><span>חובה לבחור כתובת מתוך ההשלמה האוטומטית כדי לעדכן קואורדינטות.</span>`;
+  setStatus("fixAddressModalStatus", "");
+  $("fixAddressDialog")?.showModal();
+  window.setTimeout(() => $("fixAddressModalInput")?.dispatchEvent(new Event("input", { bubbles: true })), 0);
+  refreshIcons();
+}
+
+async function applyFixAddressModalFix() {
+  const place = state.fixAddressPlaces.find((item) => item.id === state.fixAddressModalPlaceId);
+  if (!place) return;
+  const selected = state.fixAddressModalSelection;
+  if (!selected || selected.lat == null || selected.lon == null) {
+    setStatus("fixAddressModalStatus", "צריך לבחור כתובת מתוך ההשלמה האוטומטית לפני עדכון.", true);
+    return;
+  }
+  const button = $("applyFixAddressModalButton");
+  if (button) button.disabled = true;
+  try {
+    await ensureFreshAdminAuthToken();
+    const fs = state.firebase.firestore;
+    const ref = fs.doc(state.firebase.db, "public_places", place.id);
+    await fs.setDoc(ref, { lat: selected.lat, lon: selected.lon, location: selected.address || place.location, updatedAt: fs.serverTimestamp() }, { merge: true });
+    place.lat = selected.lat;
+    place.lon = selected.lon;
+    place.location = selected.address || place.location;
+    place.addressFixStatus = "ok";
+    $("fixAddressDialog")?.close();
+    renderFixAddressPlaces();
+    setStatus("fixAddressStatus", `${place.name || "המקום"} עודכן עם כתובת וקואורדינטות חדשות.`);
+    showToast("הכתובת עודכנה ונשמרה.", "success");
+  } catch (error) {
+    setStatus("fixAddressModalStatus", `שמירה נכשלה: ${error?.message || "שגיאה"}`, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function bindOpeningHoursTools() {
@@ -2817,8 +3222,6 @@ function examplePlace() {
     cover_emoji: "🏛️",
     cover_background_hex: "#8B5CF6",
     rating: 4.8,
-    lat: 41.8902,
-    lon: 12.4922,
     image_search_query: "Colosseum Rome"
   };
 }
@@ -2826,13 +3229,11 @@ function examplePlace() {
 function buildPlacePrompt() {
   const destination = state.destinations.import?.label || $("importDestinationInput").value.trim() || "[יעד]";
   const address = state.destinations.import?.address || "";
-  const coordinates = state.destinations.import ? `קואורדינטות ייחוס של היעד: ${state.destinations.import.lat}, ${state.destinations.import.lon}` : "";
   return `**תפקיד ומטרה (Role & Context):**
 אתה משמש כמנוע עיבוד נתונים ומדריך טיולים וירטואלי מומחה עבור אפליקציית התיירות TripEase. תפקידך הוא לקבל יעד וכמות מקומות מבוקשת, לאסוף מידע עדכני מהאינטרנט, ולהפיק רשימת מקומות עשירה, ממוינת ושיווקית במבנה JSON קפדני.
 **נתוני הבקשה:**
 היעד המבוקש הוא: ${destination}
 ${address ? `כתובת הייחוס של היעד: ${address}
-` : ""}${coordinates ? `${coordinates}
 ` : ""}**חוקי יסוד ואמינות המידע (Core Rules):**
  1. **דיוק מוחלט:** חובה עליך להשתמש בחיפוש רשת כדי לוודא שעות פתיחה, כתובות ופרטים עדכניים. לעולם אל תמציא מידע. אם נתון אינו ניתן לאימות, השאר אותו כמחרוזת ריקה "".
  2. **כתובות לניווט:** הכתובת (address) חייבת להיות מדויקת ובשפת המקור כדי להבטיח זיהוי של 100% במערכות Apple Maps ו-Google Maps. בשדה address כתוב רק את הכתובת המלאה עצמה, בלי שם המקום, בלי שם המותג, בלי הסבר ובלי סוגריים. אל תתרגם כתובת לעברית אם הכתובת המקומית כתובה באנגלית, גרמנית, צ'כית, איטלקית, צרפתית או כל שפת מקור אחרת.
@@ -2912,8 +3313,9 @@ function draftFromJson(item, index) {
     shortDescription: text(item.short_description || item.shortDescription),
     description: text(item.description),
     location: text(item.address || item.location),
-    lat: number(item.lat || item.latitude),
-    lon: number(item.lon || item.lng || item.longitude),
+    // קואורדינטות תמיד נגזרות מ-Photon לפי הכתובת, לא מה-JSON של ה-AI.
+    lat: null,
+    lon: null,
     hours: text(item.opening_hours || item.hours),
     website: text(item.website),
     reservationLabel: text(item.reservation || item.reservationLabel) || "reservation_no",
@@ -2938,10 +3340,15 @@ function renderDrafts() {
   refreshIcons();
 }
 
+function draftNeedsHoursCheck(draft) {
+  return text(draft.hours).trim() === CHECK_WEBSITE_HOURS;
+}
+
 function renderDraftCard(draft) {
   const issues = missingDraftFields(draft);
   const hasMissingCoords = draft.lat == null || draft.lon == null;
-  return `<article class="place-card draft-card ${issues.length ? "has-issues" : ""}" data-draft-id="${draft.id}">
+  const needsHoursCheck = draftNeedsHoursCheck(draft);
+  return `<article class="place-card draft-card ${issues.length ? "has-issues" : ""} ${needsHoursCheck ? "needs-hours-check" : ""}" data-draft-id="${draft.id}">
     ${imageHtml(draft)}
     <div class="place-body">
       <div class="compact-card-title-row">
@@ -2960,6 +3367,13 @@ function renderDraftCard(draft) {
         </button>
       </div>
       ${issues.length ? `<button class="draft-issues ${hasMissingCoords ? "is-clickable" : ""}" type="button" data-action="${hasMissingCoords ? "address" : "review"}"><i data-lucide="${hasMissingCoords ? "map-pin-off" : "triangle-alert"}" aria-hidden="true"></i><span>חסר להשלים: ${escapeHtml(issues.join(", "))}</span></button>` : ""}
+      ${needsHoursCheck ? `<div class="draft-hours-check">
+        <span class="draft-hours-check-note"><i data-lucide="clock-alert" aria-hidden="true"></i><span>שעות פתיחה לבדיקה — משוך פרטים אמיתיים</span></span>
+        <div class="draft-hours-check-actions">
+          <button class="ghost-action" type="button" data-action="gplace"><i data-lucide="map-pinned"></i><span>Google Places</span></button>
+          <button class="ghost-action" type="button" data-action="geminiHours"><i data-lucide="sparkles"></i><span>Gemini</span></button>
+        </div>
+      </div>` : ""}
       <div class="card-actions">
         <button class="ghost-action danger-lite" type="button" data-action="remove"><i data-lucide="trash-2"></i><span>מחק</span></button>
         <button class="ghost-action" type="button" data-action="image"><i data-lucide="image"></i><span>בחירת תמונה</span></button>
@@ -2996,6 +3410,26 @@ async function handleDraftAction(id, action, button = null) {
   if (action === "review") openDraftReviewDialog(id);
   if (action === "web") {
     window.open(draftSearchUrl(draft), "_blank", "noopener,noreferrer");
+    return;
+  }
+  if (action === "gplace") {
+    setDraftActionButtonLoading(button, true);
+    try {
+      await enrichDraftFromGooglePlaces(draft);
+    } finally {
+      setDraftActionButtonLoading(button, false);
+    }
+    renderDrafts();
+    return;
+  }
+  if (action === "geminiHours") {
+    setDraftActionButtonLoading(button, true);
+    try {
+      await enrichDraftHoursFromGemini(draft);
+    } finally {
+      setDraftActionButtonLoading(button, false);
+    }
+    renderDrafts();
     return;
   }
   if (action === "save") {
@@ -3118,6 +3552,64 @@ function applyDraftAddressFix() {
   setStatus("importStatus", `${draft.name || "הכרטיסייה"} עודכנה עם כתובת וקואורדינטות.`);
 }
 
+async function postPlaceLookup(endpoint, draft) {
+  const idToken = await state.user.getIdToken();
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: await withAppCheckHeaders({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    }),
+    body: JSON.stringify({ name: draft.name, address: draft.location })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  return payload;
+}
+
+async function enrichDraftFromGooglePlaces(draft) {
+  if (!state.user) {
+    setStatus("importStatus", "צריך להתחבר לפני משיכת פרטים.", true);
+    return;
+  }
+  try {
+    await ensureFreshAdminAuthToken();
+    const data = await postPlaceLookup(GOOGLE_PLACES_ENDPOINT, draft);
+    if (typeof data.rating === "number") draft.rating = data.rating;
+    if (data.address) draft.location = data.address;
+    if (data.opening_hours) draft.hours = data.opening_hours;
+    if (Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
+      draft.lat = data.lat;
+      draft.lon = data.lng;
+    }
+    draft.validationIssues = missingDraftFields(draft);
+    setStatus("importStatus", `${draft.name || "המקום"} עודכן מ-Google Places.`);
+    showToast(`${draft.name || "המקום"} עודכן מ-Google Places.`, "success");
+  } catch (error) {
+    const message = error?.message === "not_found" ? "המקום לא נמצא ב-Google Places." : (error?.message || "שגיאה לא ידועה");
+    setStatus("importStatus", `משיכת Google Places נכשלה: ${message}`, true);
+    showToast("משיכת Google Places נכשלה.", "error");
+  }
+}
+
+async function enrichDraftHoursFromGemini(draft) {
+  if (!state.user) {
+    setStatus("importStatus", "צריך להתחבר לפני משיכת שעות.", true);
+    return;
+  }
+  try {
+    await ensureFreshAdminAuthToken();
+    const data = await postPlaceLookup(GEMINI_PLACE_HOURS_ENDPOINT, draft);
+    if (data.opening_hours) draft.hours = data.opening_hours;
+    draft.validationIssues = missingDraftFields(draft);
+    setStatus("importStatus", `שעות הפתיחה של ${draft.name || "המקום"} עודכנו עם Gemini.`);
+    showToast("שעות הפתיחה עודכנו עם Gemini.", "success");
+  } catch (error) {
+    setStatus("importStatus", `משיכת שעות מ-Gemini נכשלה: ${error?.message || "שגיאה"}`, true);
+    showToast("משיכת שעות מ-Gemini נכשלה.", "error");
+  }
+}
+
 async function checkDraftDuplicate(draft) {
   const places = await fetchPublicPlacesByExactName(draft.name);
   const match = places.find((place) => isLikelyDuplicate(draft, place));
@@ -3234,16 +3726,22 @@ async function enrichSingleDraft(draft) {
 
 async function autoCompleteDraftAddress(draft) {
   if (draft.location && draft.lat != null && draft.lon != null) return;
+  // מקור האמת לקואורדינטות הוא הכתובת מה-JSON: מחפשים אותה ב-Photon קודם,
+  // ורק אם לא נמצאה נופלים לשילובי שם+יעד.
   const queries = [
+    draft.location,
+    [draft.location, draft.destination].filter(Boolean).join(", "),
     [draft.name, draft.destination, draft.location].filter(Boolean).join(" "),
     [draft.name, draft.destination].filter(Boolean).join(" "),
-    [draft.name, draft.location].filter(Boolean).join(" "),
-    draft.location
+    [draft.name, draft.location].filter(Boolean).join(" ")
   ].map(text).filter(Boolean);
+  const addressQuery = text(draft.location);
   for (const query of queries) {
     const results = await searchAddress(query);
     if (!results.length) continue;
-    const preferred = chooseBestAddressResult(results, draft);
+    // כשמחפשים בדיוק את הכתובת מה-JSON, מקבלים את התוצאה המובילה של Photon
+    // גם אם ניקוד ההיוריסטיקה נמוך (הכתובת היא מקור האמת).
+    const preferred = chooseBestAddressResult(results, draft) || (query === addressQuery ? results[0] : null);
     if (!preferred) continue;
     const normalized = await normalizeSelectedDestination(preferred);
     draft.location = normalized.address || draft.location;

@@ -28,6 +28,7 @@ const NAV_ITEMS = [
       { key: "approve", href: "./places.html?view=approve", label: "אישור מקומות" },
       { key: "broken-images", href: "./places.html?view=broken-images", label: "תיקון תמונות שבורות" },
       { key: "fix-hours", href: "./places.html?view=fix-hours", label: "תקן שעות פתיחה" },
+      { key: "fix-addresses", href: "./places.html?view=fix-addresses", label: "תיקון כתובות" },
       { key: "duplicates", href: "./places.html?view=duplicates", label: "מחיקת כפילויות" },
       { key: "delete", href: "./places.html?view=delete", label: "מחיקה מלאה" }
     ]

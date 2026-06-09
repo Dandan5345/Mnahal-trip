@@ -485,6 +485,39 @@ html[data-theme="dark"] .pa-root {
 .pa-root .place-card.draft-card.has-issues {
   border-color: var(--pa-warn-border);
 }
+/* Places whose AI hours were "מומלץ לבדוק באתר" — flag for real-data lookup. */
+.pa-root .place-card.draft-card.needs-hours-check {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+}
+.pa-root .draft-hours-check {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 12px;
+}
+.pa-root .draft-hours-check-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #b45309;
+}
+.pa-root .draft-hours-check-note svg { width: 15px; height: 15px; flex-shrink: 0; }
+.pa-root .draft-hours-check-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pa-root .draft-hours-check-actions .ghost-action {
+  flex: 1 1 auto;
+  justify-content: center;
+}
 
 /* ---- Cover / image area ---- */
 .pa-root .place-image {
@@ -1478,3 +1511,31 @@ html[data-theme="dark"] .pa-root {
     aspect-ratio: 16 / 9;
   }
 }
+
+/* ── Fix Addresses (תיקון כתובות) view ─────────────────────────────── */
+.pa-root .panel-icon.teal { background: var(--pa-info-weak); color: var(--pa-info); }
+
+.pa-root .fix-address-card.is-not-found {
+  border-color: var(--pa-danger-border);
+  background: var(--pa-danger-weak);
+  cursor: pointer;
+}
+.pa-root .fix-address-card.is-not-found:hover {
+  border-color: var(--pa-danger);
+}
+
+.pa-root .fix-address-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.pa-root .fix-address-badge i { width: 14px; height: 14px; }
+.pa-root .fix-address-badge.working { background: var(--pa-info-weak); color: var(--pa-info); }
+.pa-root .fix-address-badge.error { background: var(--pa-danger-weak); color: var(--pa-danger); }
+.pa-root .fix-address-badge.ok { background: var(--pa-success-weak); color: var(--pa-success); }
