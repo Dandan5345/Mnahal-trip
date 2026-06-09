@@ -4522,7 +4522,7 @@ async function searchImages(queryText) {
     refreshIcons();
     return;
   }
-  $("imageResults").innerHTML = images.map((image, index) => `<button class="image-option" type="button" data-image-index="${index}"><img src="${escapeAttr(normalizeImageUrl(image.thumb || image.url) || image.thumb || image.url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;"><span>${escapeHtml(image.credit || image.source)}</span></button>`).join("") || emptyHtml("לא נמצאו תמונות במקור הזה. נסה מקור אחר או שאילתה אחרת.");
+  $("imageResults").innerHTML = images.map((image, index) => `<button class="image-option" type="button" data-image-index="${index}"><img src="${escapeAttr(normalizeImageUrl(image.thumb || image.url) || image.thumb || image.url)}" alt="" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;"><span>${escapeHtml(image.credit || image.source)}</span></button>`).join("") || emptyHtml("לא נמצאו תמונות במקור הזה. נסה מקור אחר או שאילתה אחרת.");
   $("imageResults").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
     applySelectedImage(images[Number(button.dataset.imageIndex)]);
     $("imageDialog").close();
