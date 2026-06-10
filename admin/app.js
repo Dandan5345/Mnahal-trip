@@ -131,6 +131,8 @@ const state = {
 };
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
+const DUPLICATE_AI_BATCH_SIZE = 40;
+const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
 const DEEPSEEK_MODEL_OPTIONS = [
@@ -160,9 +162,9 @@ const IMPORT_SAVE_CONCURRENCY = 4;
 
 const DUPLICATE_SYSTEM_PROMPT = `
 אתה מנקה כפילויות של כרטיסיות מקומות באפליקציית Trip Planner.
-תקבל רשימת כרטיסיות מ-TripInspo מאותו אזור. לכל כרטיסיה יש card_id, source, name, address, website, type.
+תקבל רשימת כרטיסיות מ-TripInspo מאותו אזור. לכל כרטיסיה יש card_id, name, address, website, hours, type.
 המטרה: לקבץ רק כרטיסיות שמייצגות את אותו מקום פיזי / אותו עסק אמיתי, גם אם השם כתוב אחרת.
-חשוב: אל תסתפק בבדיקת שם זהה או קישור זהה בלבד. עבור ממש על כל הכרטיסיות והשווה משמעות, הקשר, כתובת, סוג מקום, תיאור ואתר. למשל "הכותל בירושלים", "הכותל המערבי" ו-"Western Wall" יכולים להיות אותו מקום גם בלי שם זהה אחד-לאחד.
+חשוב: כתובת זהה לבד אינה מספיקה. דרוש גם שם דומה (עד כ-4 שינויי אותיות/רווחים/סימנים) או שעות פתיחה דומות. עבור על כל הכרטיסיות והשווה משמעות, הקשר, כתובת, שעות, סוג מקום ואתר. למשל "הכותל בירושלים", "הכותל המערבי" ו-"Western Wall" יכולים להיות אותו מקום גם בלי שם זהה אחד-לאחד.
 
 החזר JSON תקין בלבד. אסור להחזיר markdown, טקסט חופשי, הערות, או שדות שלא מופיעים בסכמה.
 הפורמט המדויק היחיד שמותר להחזיר:
@@ -4594,27 +4596,233 @@ async function copyDuplicatePrompt() {
   await copyText(prompt, "פרומפט כפילויות הועתק.", "duplicateStatus");
 }
 
-function runLocalDuplicateCheck() {
-  const groups = [];
-  const buckets = new Map();
-  state.duplicatePlaces.forEach((place) => {
-    const keys = [normalize(place.name), normalize(place.location), normalizeWebsite(place.website)].filter(Boolean);
-    keys.forEach((key) => {
-      if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push(place);
+function truncateDuplicateField(value, maxLength) {
+  const output = text(value);
+  return output.length <= maxLength ? output : `${output.slice(0, maxLength - 1)}…`;
+}
+
+function normalizeDuplicateName(value) {
+  return text(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function normalizeDuplicateNameLoose(value) {
+  return text(value).toLowerCase().replace(/[\s,./\\\-:;|'"()]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeDuplicateHours(value) {
+  return text(value).toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[;:·•|]+/g, "|").trim();
+}
+
+function editDistance(a, b) {
+  const left = text(a);
+  const right = text(b);
+  if (!left) return right.length;
+  if (!right) return left.length;
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let i = 0; i < rows; i += 1) matrix[i][0] = i;
+  for (let j = 0; j < cols; j += 1) matrix[0][j] = j;
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[rows - 1][cols - 1];
+}
+
+function duplicateNamesSimilar(nameA, nameB) {
+  const strictA = normalizeDuplicateName(nameA);
+  const strictB = normalizeDuplicateName(nameB);
+  if (!strictA || !strictB) return false;
+  if (strictA === strictB) return true;
+  if (editDistance(strictA, strictB) <= DUPLICATE_NAME_MAX_EDITS) return true;
+  const looseA = normalizeDuplicateNameLoose(nameA);
+  const looseB = normalizeDuplicateNameLoose(nameB);
+  if (!looseA || !looseB) return false;
+  if (looseA === looseB) return true;
+  return editDistance(looseA, looseB) <= DUPLICATE_NAME_MAX_EDITS;
+}
+
+function duplicateHoursSimilar(hoursA, hoursB) {
+  const left = normalizeDuplicateHours(hoursA);
+  const right = normalizeDuplicateHours(hoursB);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (left.length >= 12 && right.length >= 12) {
+    return editDistance(left, right) <= Math.min(12, Math.max(4, Math.floor(Math.min(left.length, right.length) * 0.18)));
+  }
+  return false;
+}
+
+function duplicatePlacesShareWebsite(a, b) {
+  const left = normalizeWebsite(a.website);
+  const right = normalizeWebsite(b.website);
+  return Boolean(left && right && left === right);
+}
+
+function duplicatePlacesShareAddress(a, b) {
+  const left = normalize(a.location);
+  const right = normalize(b.location);
+  return Boolean(left && right && left === right);
+}
+
+function duplicatePlacesAreClose(a, b, maxKm = 0.12) {
+  if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) return false;
+  return distanceKm(a.lat, a.lon, b.lat, b.lon) <= maxKm;
+}
+
+function describeLocalDuplicateMatch(a, b) {
+  const parts = [];
+  if (duplicateNamesSimilar(a.name, b.name)) parts.push("שם דומה");
+  if (duplicateHoursSimilar(a.hours, b.hours)) parts.push("שעות פתיחה דומות");
+  if (duplicatePlacesShareAddress(a, b)) parts.push("כתובת זהה");
+  if (duplicatePlacesShareWebsite(a, b)) parts.push("אתר זהה");
+  if (duplicatePlacesAreClose(a, b)) parts.push("מיקום קרוב");
+  return parts.join(" + ") || "התאמה מקומית";
+}
+
+function localPlacesAreDuplicates(a, b) {
+  if (!a || !b || a.id === b.id) return false;
+  const nameSimilar = duplicateNamesSimilar(a.name, b.name);
+  const hoursSimilar = duplicateHoursSimilar(a.hours, b.hours);
+  const websiteMatch = duplicatePlacesShareWebsite(a, b);
+  const addressMatch = duplicatePlacesShareAddress(a, b);
+  const coordsClose = duplicatePlacesAreClose(a, b);
+
+  if (addressMatch && !nameSimilar && !hoursSimilar && !websiteMatch) return false;
+  if (nameSimilar && hoursSimilar) return true;
+  if (nameSimilar && (addressMatch || websiteMatch || coordsClose)) return true;
+  if (hoursSimilar && (addressMatch || websiteMatch || coordsClose)) return true;
+  if (websiteMatch && nameSimilar) return true;
+  return false;
+}
+
+function duplicatePlaceQualityScore(place) {
+  let score = 0;
+  if (text(place.description)) score += 2;
+  if (text(place.shortDescription)) score += 1;
+  if (text(place.hours)) score += 1;
+  if (text(place.website)) score += 1;
+  if (text(place.coverImageUrl)) score += 1;
+  if (place.adminApproved === true) score += 2;
+  if (text(place.location)) score += 1;
+  return score;
+}
+
+function pickRecommendedDuplicateKeep(places) {
+  return [...places].sort((a, b) => duplicatePlaceQualityScore(b) - duplicatePlaceQualityScore(a))[0];
+}
+
+function buildLocalDuplicateGroups(places) {
+  const parent = new Map(places.map((place) => [place.id, place.id]));
+  const findRoot = (id) => {
+    let current = id;
+    while (parent.get(current) !== current) {
+      parent.set(current, parent.get(parent.get(current)));
+      current = parent.get(current);
+    }
+    return current;
+  };
+  const unionPlaces = (leftId, rightId) => {
+    const leftRoot = findRoot(leftId);
+    const rightRoot = findRoot(rightId);
+    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+  };
+
+  for (let i = 0; i < places.length; i += 1) {
+    for (let j = i + 1; j < places.length; j += 1) {
+      if (localPlacesAreDuplicates(places[i], places[j])) unionPlaces(places[i].id, places[j].id);
+    }
+  }
+
+  const clusters = new Map();
+  places.forEach((place) => {
+    const root = findRoot(place.id);
+    if (!clusters.has(root)) clusters.set(root, []);
+    clusters.get(root).push(place);
+  });
+
+  return [...clusters.values()]
+    .filter((items) => items.length >= 2)
+    .map((items) => {
+      const keep = pickRecommendedDuplicateKeep(items);
+      const reason = describeLocalDuplicateMatch(items[0], items.find((item) => item.id !== items[0].id) || items[1]);
+      return {
+        title: keep?.name || items[0].name || "קבוצת כפילות",
+        reason: `התאמה מקומית: ${reason}`,
+        card_ids: items.map((item) => item.id),
+        recommended_keep_card_id: keep?.id || items[0].id
+      };
+    })
+    .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase(), "he"));
+}
+
+function mergeDuplicateGroups(groupLists, candidates) {
+  const groups = groupLists.flat();
+  if (!groups.length) return [];
+  const parent = new Map();
+  const metaById = new Map();
+
+  const findRoot = (id) => {
+    if (!parent.has(id)) parent.set(id, id);
+    let current = id;
+    while (parent.get(current) !== current) {
+      parent.set(current, parent.get(parent.get(current)));
+      current = parent.get(current);
+    }
+    return current;
+  };
+  const unionIds = (leftId, rightId) => {
+    const leftRoot = findRoot(leftId);
+    const rightRoot = findRoot(rightId);
+    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+  };
+
+  groups.forEach((group) => {
+    group.card_ids.forEach((id) => {
+      if (!metaById.has(id)) metaById.set(id, group);
+      group.card_ids.forEach((otherId) => unionIds(id, otherId));
     });
   });
-  const seen = new Set();
-  buckets.forEach((items, key) => {
-    const unique = [...new Map(items.map((item) => [item.id, item])).values()];
-    if (unique.length < 2) return;
-    const ids = unique.map((item) => item.id).sort().join("|");
-    if (seen.has(ids)) return;
-    seen.add(ids);
-    groups.push({ title: unique[0].name || key, reason: `התאמה מקומית לפי ${key}`, card_ids: unique.map((item) => item.id), recommended_keep_card_id: unique[0].id });
+
+  const byId = new Map(candidates.map((place) => [place.id, place]));
+  const clusters = new Map();
+  [...parent.keys()].forEach((id) => {
+    const root = findRoot(id);
+    if (!clusters.has(root)) clusters.set(root, new Set());
+    clusters.get(root).add(id);
   });
+
+  return [...clusters.values()]
+    .map((ids) => [...ids])
+    .filter((ids) => ids.length >= 2)
+    .map((ids) => {
+      const places = ids.map((id) => byId.get(id)).filter(Boolean);
+      const keep = pickRecommendedDuplicateKeep(places);
+      const meta = metaById.get(keep?.id || ids[0]) || groups.find((group) => group.card_ids.some((id) => ids.includes(id)));
+      return {
+        title: meta?.title || keep?.name || places[0]?.name || "קבוצת כפילות",
+        reason: meta?.reason || "כפילות שזוהתה בבדיקת AI",
+        card_ids: ids,
+        recommended_keep_card_id: meta?.recommended_keep_card_id && ids.includes(meta.recommended_keep_card_id)
+          ? meta.recommended_keep_card_id
+          : (keep?.id || ids[0])
+      };
+    })
+    .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase(), "he"));
+}
+
+function runLocalDuplicateCheck() {
+  const groups = buildLocalDuplicateGroups(state.duplicatePlaces);
   state.duplicateGroups = groups;
   state.duplicatesCheckActive = true;
+  state.selectedDuplicateIds.clear();
   groups.forEach((group) => group.card_ids.filter((id) => id !== group.recommended_keep_card_id).forEach((id) => state.selectedDuplicateIds.add(id)));
   renderDuplicatePlaces();
   setStatus("duplicateStatus", groups.length ? `נמצאו ${groups.length} קבוצות כפילות.` : "לא נמצאו כפילויות מקומיות.");
@@ -4671,8 +4879,60 @@ function extractJsonObjectText(response) {
   return cleanJson(output);
 }
 
+function parseWorkflowErrorMessage(raw) {
+  const value = text(raw);
+  if (!value) return "שגיאה לא ידועה";
+  try {
+    const decoded = JSON.parse(value);
+    return text(decoded.error || decoded.detail || decoded.message) || value;
+  } catch (_) {
+    return value;
+  }
+}
+
+async function requestDuplicateAiBatch(candidates, destinationQuery, batchIndex, batchCount) {
+  const idToken = await state.user.getIdToken();
+  const response = await fetch(DUPLICATE_AI_ENDPOINT, {
+    method: "POST",
+    headers: await withAppCheckHeaders({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    }),
+    body: JSON.stringify({
+      feature: "admin_tool",
+      systemPrompt: DUPLICATE_SYSTEM_PROMPT,
+      userPrompt: buildDuplicatePrompt(destinationQuery, candidates, { batchIndex, batchCount }),
+      maxTokens: 8192,
+      preferredModel: state.duplicateAiModel,
+      thinkingEnabled: state.duplicateThinkingEnabled,
+      reasoningEffort: state.duplicateReasoningEffort,
+      temperature: thinkingTemperature(state.duplicateThinkingEnabled, state.duplicateReasoningEffort),
+      jsonObjectResponse: true,
+      stream: true
+    })
+  });
+  if (!response.ok) throw new Error(parseWorkflowErrorMessage(await response.text()));
+  const payload = await readDeepSeekResponse(response, {
+    getFallbackModel: () => state.duplicateAiModel,
+    onModel: (model) => {
+      state.duplicateLiveModel = model;
+    },
+    onReasoningDelta: (delta) => {
+      state.duplicateLiveReasoning = appendLiveText(state.duplicateLiveReasoning, delta);
+    },
+    onContentDelta: (delta) => {
+      state.duplicateLiveAnswer = appendLiveText(state.duplicateLiveAnswer, delta);
+    },
+    onText: (value) => {
+      state.duplicateLiveAnswer = value;
+    },
+    render: renderDuplicateLivePanel
+  });
+  state.duplicateLiveModel = payload.model || state.duplicateLiveModel || state.duplicateAiModel;
+  return parseDuplicateResponse(payload.text || state.duplicateLiveAnswer, candidates);
+}
+
 async function runAiDuplicateCheck() {
-  const endpoint = DUPLICATE_AI_ENDPOINT;
   if (!state.user) {
     setStatus("duplicateStatus", "צריך להתחבר לפני בדיקת AI.", true);
     return;
@@ -4686,6 +4946,8 @@ async function runAiDuplicateCheck() {
     return;
   }
   const candidates = [...state.duplicatePlaces];
+  const destinationQuery = duplicateDestinationQuery();
+  const batches = chunkArray(candidates, DUPLICATE_AI_BATCH_SIZE);
   try {
     state.isCheckingDuplicates = true;
     state.duplicatesCheckActive = true;
@@ -4696,55 +4958,31 @@ async function runAiDuplicateCheck() {
     renderDuplicatePlaces();
     renderDuplicateLivePanel();
     syncDuplicateAiControls();
-    setStatus("duplicateStatus", `שולח בדיקת כפילויות ל-${aiModeSummary(state.duplicateAiModel, state.duplicateThinkingEnabled, state.duplicateReasoningEffort)}...`);
-    const idToken = await state.user.getIdToken();
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: await withAppCheckHeaders({
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`
-      }),
-      body: JSON.stringify({
-        feature: "admin_tool",
-        systemPrompt: DUPLICATE_SYSTEM_PROMPT,
-        userPrompt: buildDuplicatePrompt(duplicateDestinationQuery(), candidates),
-        maxTokens: 8192,
-        preferredModel: state.duplicateAiModel,
-        thinkingEnabled: state.duplicateThinkingEnabled,
-        reasoningEffort: state.duplicateReasoningEffort,
-        temperature: thinkingTemperature(state.duplicateThinkingEnabled, state.duplicateReasoningEffort),
-        jsonObjectResponse: true,
-        stream: true
-      })
-    });
-    if (!response.ok) throw new Error(await response.text());
-    const payload = await readDeepSeekResponse(response, {
-      getFallbackModel: () => state.duplicateAiModel,
-      onModel: (model) => {
-        state.duplicateLiveModel = model;
-      },
-      onReasoningDelta: (delta) => {
-        state.duplicateLiveReasoning = appendLiveText(state.duplicateLiveReasoning, delta);
-      },
-      onContentDelta: (delta) => {
-        state.duplicateLiveAnswer = appendLiveText(state.duplicateLiveAnswer, delta);
-      },
-      onText: (value) => {
-        state.duplicateLiveAnswer = value;
-      },
-      render: renderDuplicateLivePanel
-    });
-    state.duplicateLiveModel = payload.model || state.duplicateLiveModel || state.duplicateAiModel;
-    const parsed = parseDuplicateResponse(payload.text || state.duplicateLiveAnswer, candidates);
-    state.duplicateGroups = parsed;
+    const batchGroups = [];
+    for (let index = 0; index < batches.length; index += 1) {
+      const batch = batches[index];
+      setStatus("duplicateStatus", batches.length > 1
+        ? `שולח מנה ${index + 1}/${batches.length} (${batch.length} מקומות) ל-${aiModeSummary(state.duplicateAiModel, state.duplicateThinkingEnabled, state.duplicateReasoningEffort)}...`
+        : `שולח בדיקת כפילויות ל-${aiModeSummary(state.duplicateAiModel, state.duplicateThinkingEnabled, state.duplicateReasoningEffort)}...`);
+      if (index > 0) {
+        state.duplicateLiveReasoning = "";
+        state.duplicateLiveAnswer = "";
+        renderDuplicateLivePanel();
+      }
+      const parsed = await requestDuplicateAiBatch(batch, destinationQuery, index + 1, batches.length);
+      batchGroups.push(parsed);
+    }
+    state.duplicateGroups = mergeDuplicateGroups(batchGroups, candidates);
     state.duplicatesCheckActive = true;
     state.selectedDuplicateIds.clear();
     state.duplicateGroups.forEach((group) => group.card_ids.filter((id) => id !== group.recommended_keep_card_id).forEach((id) => state.selectedDuplicateIds.add(id)));
     renderDuplicatePlaces();
     renderDuplicateLivePanel();
-    setStatus("duplicateStatus", state.duplicateGroups.length ? `נמצאו ${state.duplicateGroups.length} קבוצות כפולים מתוך ${candidates.length} מקומות מ-TripInspo עם ${modelDisplayName(state.duplicateLiveModel || state.duplicateAiModel)}.` : `${modelDisplayName(state.duplicateLiveModel || state.duplicateAiModel)} החזיר JSON מפורש של no_duplicates עבור ${candidates.length} מקומות מ-TripInspo.`);
+    setStatus("duplicateStatus", state.duplicateGroups.length
+      ? `נמצאו ${state.duplicateGroups.length} קבוצות כפולים מתוך ${candidates.length} מקומות${batches.length > 1 ? ` (${batches.length} מנות)` : ""} עם ${modelDisplayName(state.duplicateLiveModel || state.duplicateAiModel)}.`
+      : `${modelDisplayName(state.duplicateLiveModel || state.duplicateAiModel)} החזיר JSON מפורש של no_duplicates עבור ${candidates.length} מקומות מ-TripInspo.`);
   } catch (error) {
-    setStatus("duplicateStatus", `בדיקת AI נכשלה: ${error.message}`, true);
+    setStatus("duplicateStatus", `בדיקת AI נכשלה: ${parseWorkflowErrorMessage(error.message)}`, true);
   } finally {
     state.isCheckingDuplicates = false;
     syncDuplicateAiControls();
@@ -4848,10 +5086,12 @@ function renderDuplicateLivePanel() {
   $("duplicateLiveAnswer").textContent = state.duplicateLiveAnswer.trim() || "אין תשובה להצגה.";
 }
 
-function buildDuplicatePrompt(destinationQuery, places) {
+function buildDuplicatePrompt(destinationQuery, places, { batchIndex = 1, batchCount = 1 } = {}) {
   return JSON.stringify({
-    destination_query: destinationQuery,
+    destination_query: truncateDuplicateField(destinationQuery, 80),
     search_radius_km: DUPLICATE_SEARCH_RADIUS_KM,
+    batch_index: batchIndex,
+    batch_count: batchCount,
     destination_coordinates: {
       lat: state.destinations.duplicates?.lat ?? null,
       lon: state.destinations.duplicates?.lon ?? null
@@ -4859,13 +5099,13 @@ function buildDuplicatePrompt(destinationQuery, places) {
     task: "Find TripInspo place cards that refer to the same real-world place.",
     places: places.map((place) => ({
       card_id: place.id,
-      source: place.sharedByUsername || place.sharedByUid || "TripInspo",
-      name: place.name,
-      address: place.location || "",
-      website: place.website || "",
-      type: place.type
+      name: truncateDuplicateField(place.name, 90),
+      address: truncateDuplicateField(place.location, 110),
+      website: truncateDuplicateField(normalizeWebsite(place.website), 70),
+      hours: truncateDuplicateField(place.hours, 80),
+      type: truncateDuplicateField(place.type, 32)
     }))
-  }, null, 2);
+  });
 }
 
 async function deleteSelected(mode) {
