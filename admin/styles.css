@@ -6223,6 +6223,9 @@ a,
 .chat-send-button { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; box-shadow: 0 4px 12px -3px rgba(37,99,235,0.55); }
 .chat-send-button:hover:not(:disabled) { box-shadow: 0 6px 16px -3px rgba(37,99,235,0.65); }
 .chat-send-button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+.chat-send-button.is-stop { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 4px 12px -3px rgba(220,38,38,0.55); animation: chatStopPulse 1.6s ease-in-out infinite; }
+.chat-send-button.is-stop:hover { box-shadow: 0 6px 16px -3px rgba(220,38,38,0.7); }
+@keyframes chatStopPulse { 0%, 100% { box-shadow: 0 4px 12px -3px rgba(220,38,38,0.5); } 50% { box-shadow: 0 4px 12px -3px rgba(220,38,38,0.5), 0 0 0 4px rgba(220,38,38,0.16); } }
 .chat-input { flex: 1 1 auto; resize: none; font-family: inherit; font-size: 15px; line-height: 1.45; padding: 10px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface-soft); color: var(--text); max-height: 140px; transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease; }
 .chat-input:focus-visible { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-weak); }
 .chat-plus-menu, .chat-mark-menu { position: absolute; bottom: 64px; inset-inline-start: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 16px 40px -12px rgba(15,23,42,0.4); padding: 7px; z-index: 5; min-width: 240px; max-height: 280px; overflow-y: auto; animation: chatMenuIn 0.16s ease; }
@@ -6278,6 +6281,28 @@ a,
 .chat-text-link-muted { color: var(--muted); }
 .chat-places-foot .primary-action:disabled { opacity: 0.45; cursor: default; }
 .chat-places-grid .empty-screen { grid-column: 1 / -1; }
+
+/* ── Attached-places summary + review modal ──────────────────────── */
+.chat-live-body { display: inline; }
+.chat-attach-summary { display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 12.5px; font-weight: 700; padding: 5px 7px 5px 11px; border-radius: 999px; border: 1px solid var(--accent-weak-2); background: var(--accent-weak); color: var(--accent-text); cursor: pointer; transition: filter 0.14s ease; }
+.chat-attach-summary:hover { filter: brightness(0.97); }
+.chat-attach-summary i { width: 14px; height: 14px; }
+.chat-attach-summary b { font-size: 11.5px; font-weight: 800; padding: 2px 9px; border-radius: 999px; background: var(--accent); color: #fff; }
+.chat-attach-dialog { border: none; border-radius: 20px; padding: 0; background: transparent; max-width: 520px; width: calc(100% - 24px); height: min(82vh, 720px); }
+.chat-attach-dialog::backdrop { background: rgba(15,23,42,0.6); backdrop-filter: blur(5px); }
+.chat-attach-shell { background: var(--surface); border-radius: 20px; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; box-shadow: 0 24px 60px -20px rgba(15,23,42,0.45); }
+.chat-attach-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
+.chat-attach-row { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-soft); }
+.chat-attach-row .chat-place-info { flex: 1 1 auto; }
+.chat-attach-remove { flex: 0 0 auto; width: 34px; height: 34px; color: var(--muted); transition: color 0.14s ease, background 0.14s ease; }
+.chat-attach-remove:hover { color: var(--red); background: var(--red-soft); }
+.chat-attach-remove i { width: 16px; height: 16px; }
+
+@media (max-width: 560px) {
+    .chat-attach-dialog { max-width: 100vw; width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
+    .chat-attach-shell { border-radius: 0; height: 100dvh; }
+    .chat-attach-remove { width: 40px; height: 40px; }
+}
 
 /* ── Diff preview ────────────────────────────────────────────────── */
 .chat-diff-dialog { border: none; border-radius: var(--radius-lg); padding: 0; background: transparent; max-width: 560px; width: calc(100% - 24px); }

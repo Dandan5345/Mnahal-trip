@@ -96,8 +96,12 @@ function createChatState(dayIndex) {
         reasoningEffort: storedAiPreference("trip-day-edit", "reasoningEffort", "high"),
         messages: [],
         sending: false,
+        aborting: false,
+        abortController: null,
+        pendingUserInput: null,
         liveReasoning: "",
         liveReasoningStarted: false,
+        liveReasoningExpanded: false,
         liveAnswer: "",
         pendingDay: null,
         attachments: [],
@@ -237,7 +241,7 @@ function renderPage() {
         subtitle: state.view === "compose"
             ? (state.lastSavedId ? "עריכה מלאה של כל שלבי הטיול — לו״ז, מלונות, קישורים ושמירה." : "מקומות, prompt, JSON ושמירה.")
             : "חיפוש, טעינה, עריכה ומחיקה.",
-        content: `${state.view === "compose" ? renderComposeView() : renderManageView()}${renderTemplateEditDialog()}${renderHotelEditDialog()}${renderBookingEditDialog()}${renderRecommendationDetailDialog()}${renderRecommendationImageDialog()}${renderChatSetupDialog()}${renderChatDialog()}${renderChatPlacesDialog()}${renderChatDiffDialog()}${renderLoadingOverlay()}${renderToastContainer()}`
+        content: `${state.view === "compose" ? renderComposeView() : renderManageView()}${renderTemplateEditDialog()}${renderHotelEditDialog()}${renderBookingEditDialog()}${renderRecommendationDetailDialog()}${renderRecommendationImageDialog()}${renderChatSetupDialog()}${renderChatDialog()}${renderChatPlacesDialog()}${renderChatAttachReviewDialog()}${renderChatDiffDialog()}${renderLoadingOverlay()}${renderToastContainer()}`
     });
 
     attachSharedUi({
@@ -803,20 +807,67 @@ function chatMessageHtml(msg) {
     return `<div class="chat-msg chat-msg-ai"><span class="chat-avatar small"><i data-lucide="sparkles"></i></span><div class="chat-bubble">${reasoningHtml}${body}${proposalChip}</div></div>`;
 }
 
+function chatLiveBodyHtml() {
+    if (state.chat.liveAnswer) return escapeHtml(state.chat.liveAnswer).replace(/\n/g, "<br>");
+    const thinking = Boolean(state.chat.hideLiveReasoning) || state.chat.liveReasoningStarted;
+    return `<span class="chat-typing"><i></i><i></i><i></i><span class="chat-typing-label">${thinking ? "חושב…" : "מקליד…"}</span></span>`;
+}
+
+function chatLivePlaceholderReasoning() { return "מנתח את הבקשה…"; }
+
+function renderChatLiveReasoningPanel() {
+    const expanded = Boolean(state.chat.liveReasoningExpanded);
+    const reasoningText = text(state.chat.liveReasoning) || chatLivePlaceholderReasoning();
+    // The live panel carries the real streamed thinking (stable id so we can patch
+    // its text per token), collapsed by default — tap "חשיבה · בזמן אמת" to watch it.
+    return `<div class="chat-reasoning-panel is-live${expanded ? "" : " is-collapsed"}">
+        <button type="button" class="chat-reasoning-toggle" aria-expanded="${expanded ? "true" : "false"}">
+            <i data-lucide="brain"></i>
+            <span>חשיבה · בזמן אמת</span>
+            <i data-lucide="chevron-down" class="chat-reasoning-chevron"></i>
+        </button>
+        <pre class="chat-reasoning-content" id="chatLiveReasoning">${escapeHtml(reasoningText)}</pre>
+    </div>`;
+}
+
 function renderChatLiveBubble() {
-    let content = "";
     const hideReasoning = Boolean(state.chat.hideLiveReasoning);
-    if (!hideReasoning && state.chat.liveReasoningStarted) content += chatReasoningHtml("חושב על התשובה...", {
-        isLive: true,
-        collapsed: true,
-        includeContent: false
+    const reasoning = (!hideReasoning && state.chat.liveReasoningStarted) ? renderChatLiveReasoningPanel() : "";
+    return `<div class="chat-msg chat-msg-ai is-streaming"><span class="chat-avatar small"><i data-lucide="sparkles"></i></span><div class="chat-bubble">${reasoning}<div class="chat-live-body" id="chatLiveBody">${chatLiveBodyHtml()}</div></div></div>`;
+}
+
+// During streaming, patch only the live bubble instead of re-rendering every
+// message and re-scanning all icons on each token — that full rebuild caused the
+// answer to flicker and the UI to feel frozen. A full render runs only when the
+// reasoning indicator needs to appear/disappear (a structural change).
+let chatStreamRaf = 0;
+function scheduleChatLiveStream() {
+    if (chatStreamRaf) return;
+    chatStreamRaf = requestAnimationFrame(() => {
+        chatStreamRaf = 0;
+        updateChatLiveStream();
     });
-    if (state.chat.liveAnswer) {
-        content += escapeHtml(state.chat.liveAnswer).replace(/\n/g, "<br>");
-    } else {
-        content += `<span class="chat-typing"><i></i><i></i><i></i><span class="chat-typing-label">${hideReasoning ? "חושב..." : "מקליד..."}</span></span>`;
+}
+
+function updateChatLiveStream() {
+    if (!state.chat || !state.chat.sending) return;
+    const body = document.getElementById("chatLiveBody");
+    const liveBubble = body?.closest(".chat-msg.is-streaming");
+    const wantReasoning = !state.chat.hideLiveReasoning && state.chat.liveReasoningStarted;
+    const hasReasoning = Boolean(liveBubble?.querySelector(".chat-reasoning-panel"));
+    if (!body || wantReasoning !== hasReasoning) {
+        renderChat();
+        return;
     }
-    return `<div class="chat-msg chat-msg-ai is-streaming"><span class="chat-avatar small"><i data-lucide="sparkles"></i></span><div class="chat-bubble">${content}</div></div>`;
+    const container = $("chatMessages");
+    const stick = container ? (!state.chat.userScrolledChat && chatShouldAutoScroll(container)) : false;
+    const reasoningEl = document.getElementById("chatLiveReasoning");
+    if (reasoningEl) {
+        const reasoningText = text(state.chat.liveReasoning) || chatLivePlaceholderReasoning();
+        if (reasoningEl.textContent !== reasoningText) reasoningEl.textContent = reasoningText;
+    }
+    body.innerHTML = chatLiveBodyHtml();
+    if (stick && container) container.scrollTop = container.scrollHeight;
 }
 
 function chatShouldAutoScroll(container) {
@@ -838,7 +889,13 @@ function renderChat() {
     const previewButton = $("chatPreviewChangesButton");
     if (previewButton) previewButton.disabled = !state.chat.pendingDay;
     const sendButton = $("chatSendButton");
-    if (sendButton) sendButton.disabled = state.chat.sending;
+    if (sendButton) {
+        const sending = Boolean(state.chat.sending);
+        sendButton.classList.toggle("is-stop", sending);
+        sendButton.innerHTML = sending ? `<i data-lucide="square"></i>` : `<i data-lucide="send"></i>`;
+        sendButton.setAttribute("aria-label", sending ? "עצור" : "שלח");
+        sendButton.disabled = false;
+    }
     const chatInput = $("chatInput");
     if (chatInput) chatInput.disabled = state.chat.sending;
     if (stickToBottom) {
@@ -850,15 +907,72 @@ function renderChat() {
     refreshIcons();
 }
 
+const CHAT_ATTACH_CHIP_LIMIT = 3;
+
 function renderChatAttachStrip() {
     const strip = $("chatAttachStrip");
     if (!strip || !state.chat) return;
+    const attachments = state.chat.attachments;
+    // Past a few places, collapse the strip into a single summary pill that opens
+    // a review modal — otherwise 50 chips flood the composer.
+    const attachChips = attachments.length > CHAT_ATTACH_CHIP_LIMIT
+        ? `<button type="button" class="chat-attach-summary" data-open-attach-review aria-label="צפה במקומות המצורפים"><i data-lucide="map-pinned"></i><span>מצורפים ${attachments.length} מקומות</span><b>צפייה</b></button>`
+        : attachments.map((place, index) => `<span class="chat-attach-chip"><i data-lucide="map-pin"></i>${escapeHtml(place.name)}<button type="button" data-remove-attach="${index}" aria-label="הסר"><i data-lucide="x"></i></button></span>`).join("");
     const chips = [
-        ...state.chat.attachments.map((place, index) => `<span class="chat-attach-chip"><i data-lucide="map-pin"></i>${escapeHtml(place.name)}<button type="button" data-remove-attach="${index}" aria-label="הסר"><i data-lucide="x"></i></button></span>`),
+        attachChips,
         ...state.chat.markedNotes.map((note, index) => `<span class="chat-attach-chip chat-attach-mark"><i data-lucide="list"></i>${escapeHtml(truncate(note, 28))}<button type="button" data-remove-mark="${index}" aria-label="הסר"><i data-lucide="x"></i></button></span>`)
-    ].join("");
+    ].filter(Boolean).join("");
     strip.innerHTML = chips;
     strip.classList.toggle("is-hidden", !chips);
+}
+
+function renderChatAttachReviewDialog() {
+    return `
+        <dialog class="chat-attach-dialog" id="chatAttachReviewDialog">
+            <div class="chat-attach-shell">
+                <div class="chat-places-head">
+                    <div class="dialog-header">
+                        <div class="chat-places-title"><span class="chat-avatar small"><i data-lucide="paperclip"></i></span><div><p class="eyebrow">מצורף לשיחה</p><h2 id="chatAttachReviewTitle">מקומות מצורפים</h2></div></div>
+                        <button class="icon-button" type="button" id="chatAttachReviewClose" aria-label="סגור"><i data-lucide="x"></i></button>
+                    </div>
+                </div>
+                <div class="chat-attach-list" id="chatAttachReviewList"></div>
+                <div class="chat-places-foot">
+                    <button class="chat-text-link chat-text-link-muted" type="button" id="chatAttachReviewClearAll"><i data-lucide="trash-2"></i><span>הסר הכל</span></button>
+                    <button class="primary-action" type="button" id="chatAttachReviewDone"><i data-lucide="check"></i><span>סיום</span></button>
+                </div>
+            </div>
+        </dialog>`;
+}
+
+function openChatAttachReview() {
+    if (!state.chat) return;
+    renderChatAttachReviewList();
+    $("chatAttachReviewDialog")?.showModal();
+    refreshIcons();
+}
+
+function renderChatAttachReviewList() {
+    const list = $("chatAttachReviewList");
+    if (!list || !state.chat) return;
+    const attachments = state.chat.attachments;
+    if ($("chatAttachReviewTitle")) $("chatAttachReviewTitle").textContent = `${attachments.length} מקומות מצורפים`;
+    list.innerHTML = attachments.length ? attachments.map((place, index) => {
+        const thumb = place.coverImageUrl ? `<img src="${escapeAttr(place.coverImageUrl)}" alt="" loading="lazy">` : `<span class="chat-place-emoji">${escapeHtml(place.coverEmoji || "📍")}</span>`;
+        return `<div class="chat-attach-row">
+            <span class="chat-place-thumb">${thumb}</span>
+            <span class="chat-place-info"><b>${escapeHtml(place.name)}</b><small>${escapeHtml(place.location || place.type || "")}</small></span>
+            <button class="icon-button chat-attach-remove" type="button" data-remove-attach-review="${index}" aria-label="הסר"><i data-lucide="x"></i></button>
+        </div>`;
+    }).join("") : emptyHtml("אין מקומות מצורפים.");
+    list.querySelectorAll("[data-remove-attach-review]").forEach((button) => button.addEventListener("click", () => {
+        state.chat.attachments.splice(Number(button.dataset.removeAttachReview), 1);
+        renderChatAttachReviewList();
+        renderChatAttachStrip();
+        refreshIcons();
+        if (!state.chat.attachments.length) $("chatAttachReviewDialog")?.close();
+    }));
+    refreshIcons();
 }
 
 function dayToAiSchema(day) {
@@ -1043,9 +1157,10 @@ function buildChatStreamHandlers({ trackReasoning = true, trackAnswer = true } =
     return {
         getFallbackModel: () => state.chat?.model,
         onModel: (model) => { if (state.chat) state.chat.model = model; },
-        onReasoningDelta: () => {
+        onReasoningDelta: (delta) => {
             if (!trackReasoning || !state.chat) return;
             state.chat.liveReasoningStarted = true;
+            if (delta) state.chat.liveReasoning = appendLiveText(state.chat.liveReasoning, delta);
         },
         onContentDelta: (delta) => {
             if (!trackAnswer || !state.chat) return;
@@ -1055,7 +1170,7 @@ function buildChatStreamHandlers({ trackReasoning = true, trackAnswer = true } =
             if (!trackAnswer || !state.chat) return;
             state.chat.liveAnswer = value;
         },
-        render: renderChat
+        render: scheduleChatLiveStream
     };
 }
 
@@ -1069,6 +1184,7 @@ async function requestChatReplyStream(userPrompt, {
     const idToken = await state.user.getIdToken();
     const response = await fetch(DEEPSEEK_ENDPOINT, {
         method: "POST",
+        signal: state.chat?.abortController?.signal,
         headers: await withAppCheckHeaders({
             "Content-Type": "application/json",
             Authorization: `Bearer ${idToken}`
@@ -1147,20 +1263,27 @@ function applyChatAssistantReply(payload, { isSessionStart = false } = {}) {
 async function sendInitialChatPrompt() {
     if (!state.chat || state.chat.sending) return;
     state.chat.sending = true;
+    state.chat.aborting = false;
+    state.chat.abortController = new AbortController();
     state.chat.hideLiveReasoning = true;
     state.chat.liveAnswer = "";
     state.chat.liveReasoning = "";
     state.chat.liveReasoningStarted = false;
+    state.chat.liveReasoningExpanded = false;
     state.chat.userScrolledChat = false;
     renderChat();
     try {
         const payload = await requestChatReply(buildDayEditInitPrompt(state.chat), { allowFallback: false });
         applyChatAssistantReply(payload, { isSessionStart: true });
     } catch (error) {
-        if (state.chat) state.chat.messages.push({ role: "assistant", text: `אופס, משהו השתבש: ${error.message}` });
+        if (state.chat && !state.chat.aborting && !isAbortError(error)) {
+            state.chat.messages.push({ role: "assistant", text: `אופס, משהו השתבש: ${error.message}` });
+        }
     } finally {
         if (state.chat) {
             state.chat.sending = false;
+            state.chat.aborting = false;
+            state.chat.abortController = null;
             state.chat.hideLiveReasoning = false;
             state.chat.liveAnswer = "";
             state.chat.liveReasoning = "";
@@ -1169,6 +1292,32 @@ async function sendInitialChatPrompt() {
             setTimeout(() => $("chatInput")?.focus(), 50);
         }
     }
+}
+
+function isAbortError(error) {
+    return Boolean(error) && (error.name === "AbortError" || /abort/i.test(error.message || ""));
+}
+
+// Stops a stuck request mid-flight. The conversation context is kept; only the
+// in-flight question is pulled back into the input so it can be edited and resent.
+function stopChatRequest() {
+    if (!state.chat || !state.chat.sending) return;
+    state.chat.aborting = true;
+    try { state.chat.abortController?.abort(); } catch (_) { /* already gone */ }
+}
+
+function restoreAbortedChatInput() {
+    const pending = state.chat?.pendingUserInput;
+    if (!pending) return;
+    if (pending.message) {
+        const idx = state.chat.messages.lastIndexOf(pending.message);
+        if (idx !== -1) state.chat.messages.splice(idx, 1);
+    }
+    state.chat.attachments = pending.attachments || [];
+    state.chat.markedNotes = pending.markedNotes || [];
+    const input = $("chatInput");
+    if (input) input.value = pending.raw || "";
+    state.chat.pendingUserInput = null;
 }
 
 async function sendChatMessage() {
@@ -1180,30 +1329,49 @@ async function sendChatMessage() {
     if (!raw && !attachments.length && !markedNotes.length) return;
     let displayText = raw;
     if (markedNotes.length) displayText = `${displayText}${displayText ? "\n\n" : ""}קטעים מסומנים:\n${markedNotes.join("\n")}`;
-    state.chat.messages.push({ role: "user", text: displayText || "(צירוף מקומות)", attachments });
+    const userMessage = { role: "user", text: displayText || "(צירוף מקומות)", attachments };
+    state.chat.messages.push(userMessage);
     if (input) input.value = "";
     autoSizeChatInput();
     state.chat.attachments = [];
     state.chat.markedNotes = [];
     state.chat.sending = true;
+    state.chat.aborting = false;
+    state.chat.abortController = new AbortController();
+    state.chat.pendingUserInput = { raw, attachments, markedNotes, message: userMessage };
     state.chat.liveAnswer = "";
     state.chat.liveReasoning = "";
     state.chat.liveReasoningStarted = false;
+    state.chat.liveReasoningExpanded = false;
     state.chat.userScrolledChat = false;
     closeChatPlusMenus();
     renderChat();
+    let aborted = false;
     try {
         const payload = await requestChatReply(buildDayEditUserPrompt(state.chat, raw, attachments, markedNotes));
         applyChatAssistantReply(payload);
+        if (state.chat) state.chat.pendingUserInput = null;
     } catch (error) {
-        if (state.chat) state.chat.messages.push({ role: "assistant", text: `אופס, משהו השתבש: ${error.message}` });
+        if (state.chat && (state.chat.aborting || isAbortError(error))) {
+            aborted = true;
+            restoreAbortedChatInput();
+        } else if (state.chat) {
+            state.chat.pendingUserInput = null;
+            state.chat.messages.push({ role: "assistant", text: `אופס, משהו השתבש: ${error.message}` });
+        }
     } finally {
         if (state.chat) {
             state.chat.sending = false;
+            state.chat.aborting = false;
+            state.chat.abortController = null;
             state.chat.liveAnswer = "";
             state.chat.liveReasoning = "";
             state.chat.liveReasoningStarted = false;
             renderChat();
+            if (aborted) {
+                autoSizeChatInput();
+                setTimeout(() => $("chatInput")?.focus(), 50);
+            }
         }
     }
 }
@@ -1450,6 +1618,7 @@ function applyChatChanges() {
 }
 
 function closeChat() {
+    if (state.chat?.sending) { state.chat.aborting = true; try { state.chat.abortController?.abort(); } catch (_) { /* ignore */ } }
     $("chatDialog")?.close();
     closeChatPlusMenus();
     state.chat = null;
@@ -1528,12 +1697,15 @@ function bindChatUi() {
     });
     $("startChatButton")?.addEventListener("click", startChatFromSetup);
     $("closeChatButton")?.addEventListener("click", closeChat);
-    $("chatSendButton")?.addEventListener("click", sendChatMessage);
+    $("chatSendButton")?.addEventListener("click", () => {
+        if (state.chat?.sending) stopChatRequest();
+        else sendChatMessage();
+    });
     $("chatInput")?.addEventListener("input", autoSizeChatInput);
     $("chatInput")?.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            sendChatMessage();
+            if (!state.chat?.sending) sendChatMessage();
         }
     });
     $("chatPlusButton")?.addEventListener("click", toggleChatPlusMenu);
@@ -1559,10 +1731,21 @@ function bindChatUi() {
     $("chatDiffApplyButton")?.addEventListener("click", applyChatChanges);
     $("chatDiffBackButton")?.addEventListener("click", () => $("chatDiffDialog")?.close());
     $("chatAttachStrip")?.addEventListener("click", (event) => {
+        const openReview = event.target.closest("[data-open-attach-review]");
         const removeAttach = event.target.closest("[data-remove-attach]");
         const removeMark = event.target.closest("[data-remove-mark]");
+        if (openReview) { openChatAttachReview(); return; }
         if (removeAttach && state.chat) { state.chat.attachments.splice(Number(removeAttach.dataset.removeAttach), 1); renderChatAttachStrip(); refreshIcons(); }
         if (removeMark && state.chat) { state.chat.markedNotes.splice(Number(removeMark.dataset.removeMark), 1); renderChatAttachStrip(); refreshIcons(); }
+    });
+    $("chatAttachReviewClose")?.addEventListener("click", () => $("chatAttachReviewDialog")?.close());
+    $("chatAttachReviewDone")?.addEventListener("click", () => $("chatAttachReviewDialog")?.close());
+    $("chatAttachReviewClearAll")?.addEventListener("click", () => {
+        if (!state.chat) return;
+        state.chat.attachments = [];
+        renderChatAttachStrip();
+        refreshIcons();
+        $("chatAttachReviewDialog")?.close();
     });
     $("chatMessages")?.addEventListener("click", (event) => {
         const toggle = event.target.closest(".chat-reasoning-toggle");
@@ -1572,6 +1755,8 @@ function bindChatUi() {
         const expanded = toggle.getAttribute("aria-expanded") === "true";
         toggle.setAttribute("aria-expanded", expanded ? "false" : "true");
         panel.classList.toggle("is-collapsed", expanded);
+        // Remember the choice for the live panel so streaming patches keep it open.
+        if (panel.classList.contains("is-live") && state.chat) state.chat.liveReasoningExpanded = !expanded;
     });
     $("chatMessages")?.addEventListener("scroll", (event) => {
         if (!state.chat) return;
