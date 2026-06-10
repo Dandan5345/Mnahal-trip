@@ -13,7 +13,8 @@ import {
     renderPromptNotesField,
     bindPromptNotesInput,
     getPromptNotes,
-    combinePromptWithNotes
+    combinePromptWithNotes,
+    debounce
 } from "./shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
@@ -1244,9 +1245,10 @@ function bindActions() {
     $("pasteTripHotelsJsonButton")?.addEventListener("click", pasteHotelRecommendationsJson);
     $("copyTripBookingsPromptButton")?.addEventListener("click", copyBookingLinksPrompt);
     $("pasteTripBookingsJsonButton")?.addEventListener("click", pasteBookingRecommendationsJson);
+    const debouncedRenderTemplates = debounce(renderTemplates);
     $("tripTemplateSearchInput")?.addEventListener("input", (event) => {
         state.templateSearch = event.target.value;
-        renderTemplates();
+        debouncedRenderTemplates();
     });
     $("templateEditDialog")?.querySelector("form")?.addEventListener("submit", saveEditedTemplateFromDialog);
     $("hotelEditDialog")?.querySelector("form")?.addEventListener("submit", saveHotelFromDialog);
@@ -1292,7 +1294,8 @@ function bindChatUi() {
         renderChat();
     });
     $("chatPreviewChangesButton")?.addEventListener("click", openChatDiff);
-    $("chatPlacesSearch")?.addEventListener("input", (event) => renderChatPlacesGrid(event.target.value));
+    const debouncedChatPlacesGrid = debounce((value) => renderChatPlacesGrid(value));
+    $("chatPlacesSearch")?.addEventListener("input", (event) => debouncedChatPlacesGrid(event.target.value));
     $("chatPlacesConfirmButton")?.addEventListener("click", confirmChatPlaces);
     $("chatDiffApplyButton")?.addEventListener("click", applyChatChanges);
     $("chatDiffBackButton")?.addEventListener("click", () => $("chatDiffDialog")?.close());

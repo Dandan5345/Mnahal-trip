@@ -13,6 +13,7 @@
     <meta name="apple-mobile-web-app-title" content="TripTap" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://unpkg.com" />
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&family=Heebo:wght@400;500;600;700;800&display=swap"
         rel="stylesheet" />
     <script>(function(){try{var t=localStorage.getItem("triptap-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=t;}catch(e){}})();</script>
@@ -87,7 +88,7 @@
         </section>
     </main>
 
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="https://unpkg.com/lucide@1.17.0/dist/umd/lucide.min.js" defer></script>
     <script type="module" src="./login.js"></script>
     <script>
         (function () {
@@ -103,7 +104,9 @@
                 try { localStorage.setItem("triptap-theme", next); } catch (e) { }
                 paint();
             });
-            paint();
+            // lucide נטען עם defer, לכן מציירים אייקונים רק אחרי DOMContentLoaded.
+            if (window.lucide) paint();
+            else window.addEventListener("DOMContentLoaded", paint);
         })();
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.register("./sw.js").catch(() => { });

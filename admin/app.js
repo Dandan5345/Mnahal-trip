@@ -10,7 +10,8 @@ import {
   renderPromptNotesField,
   bindPromptNotesInput,
   getPromptNotes,
-  combinePromptWithNotes
+  combinePromptWithNotes,
+  debounce
 } from "./shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
@@ -1298,6 +1299,37 @@ function refreshIcons() {
   if (window.lucide) window.lucide.createIcons();
 }
 
+// רינדור מדורג: מציג מיד את הנתח הראשון ומשלים את השאר בפריימים הבאים,
+// כדי שחיפוש/סינון ברשימות גדולות לא יקפיא את הדף.
+const RENDER_CHUNK_SIZE = 60;
+const chunkRenderTokens = new Map();
+
+function renderCardsInChunks(container, items, renderItem, emptyMarkup, onChunk) {
+  const token = (chunkRenderTokens.get(container) || 0) + 1;
+  chunkRenderTokens.set(container, token);
+  if (!items.length) {
+    container.innerHTML = emptyMarkup;
+    refreshIcons();
+    return;
+  }
+  container.innerHTML = items.slice(0, RENDER_CHUNK_SIZE).map(renderItem).join("");
+  onChunk?.(container);
+  refreshIcons();
+  let index = RENDER_CHUNK_SIZE;
+  const appendNext = () => {
+    if (chunkRenderTokens.get(container) !== token) return;
+    if (index >= items.length) return;
+    const template = document.createElement("template");
+    template.innerHTML = items.slice(index, index + RENDER_CHUNK_SIZE).map(renderItem).join("");
+    container.appendChild(template.content);
+    index += RENDER_CHUNK_SIZE;
+    onChunk?.(container);
+    refreshIcons();
+    requestAnimationFrame(appendNext);
+  };
+  requestAnimationFrame(appendNext);
+}
+
 function installAdminInteractionGuards() {
   window.tripTapConfirm = confirmAction;
   if (window.__tripTapPlacesInteractionGuardsBound) return;
@@ -1454,9 +1486,10 @@ function bindCurrentPlaces() {
     renderCurrentPlaces();
     refreshIcons();
   });
+  const debouncedRenderCurrentPlaces = debounce(renderCurrentPlaces);
   $("currentPlacesSearchInput")?.addEventListener("input", (event) => {
     state.currentSearch = event.target.value;
-    renderCurrentPlaces();
+    debouncedRenderCurrentPlaces();
   });
   $("editCurrentPlaceButton")?.addEventListener("click", () => openCurrentPlaceEditDialog(state.selectedCurrentPlaceId));
   $("deleteCurrentPlaceButton")?.addEventListener("click", () => deleteCurrentPlace(state.selectedCurrentPlaceId));
@@ -2734,12 +2767,14 @@ function renderCurrentPlaces() {
   if ($("currentPlacesFilterPill")) $("currentPlacesFilterPill").textContent = state.destinations.currentFilter ? `${state.currentRadiusKm} ק"מ מ-${state.destinations.currentFilter.label}` : "ללא סינון מרחק";
   const container = $("currentPlacesGrid");
   if (!container) return;
-  container.innerHTML = visible.map(renderCurrentPlaceCard).join("") || emptyHtml("אין מקומות להצגה.");
-  container.querySelectorAll("[data-current-place-id]").forEach((card) => {
-    card.addEventListener("click", () => openCurrentPlaceDialog(card.dataset.currentPlaceId));
-  });
-  applyPixabayResolvers(container);
-  refreshIcons();
+  if (container.dataset.delegated !== "true") {
+    container.dataset.delegated = "true";
+    container.addEventListener("click", (event) => {
+      const card = event.target?.closest?.("[data-current-place-id]");
+      if (card) openCurrentPlaceDialog(card.dataset.currentPlaceId);
+    });
+  }
+  renderCardsInChunks(container, visible, renderCurrentPlaceCard, emptyHtml("אין מקומות להצגה."), applyPixabayResolvers);
 }
 
 function renderCurrentPlaceCard(place) {

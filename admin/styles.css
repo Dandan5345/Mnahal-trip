@@ -6878,3 +6878,351 @@ a,
     .linkfix-input { font-size: 16px; min-height: 44px; }
     .linkfix-toolbar .small-action { min-height: 40px; }
 }
+
+/* ============================================================
+   PERFORMANCE — רינדור עצל לרשימות ארוכות + הפחתת אפקטים יקרים
+   ============================================================ */
+/* כרטיסים מחוץ למסך לא מחושבים עד שגוללים אליהם — מונע תקיעות ברשימות גדולות. */
+.place-card,
+.rec-card,
+.preview-rec-card,
+.user-row,
+.report-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 320px;
+}
+
+.user-row,
+.report-row {
+    contain-intrinsic-size: auto 96px;
+}
+
+/* ה-topbar אטום (גרדיאנט chrome) — ה-blur מאחוריו לא נראה אבל עולה ביוקר בגלילה. */
+.admin-topbar {
+    backdrop-filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .place-card,
+    .place-card:hover {
+        transition: none;
+        transform: none;
+    }
+}
+
+/* ============================================================
+   DESIGN A+ — שכבת ליטוש אחרונה (דסקטופ + מובייל)
+   נטענת אחרונה כדי לנצח בקסקדה בלי לגעת בקוד הקיים.
+   ============================================================ */
+
+/* --- מיקוד אחיד ונגיש בכל האתר --- */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 10px);
+}
+
+::selection {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+/* --- סקרולברים עדינים --- */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-3) 45%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-3) 40%, transparent);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* --- כפתורים: עומק עדין, לחיצה מורגשת --- */
+.icon-button,
+.primary-action,
+.ghost-action,
+.danger-action,
+.apple-action {
+    border-radius: 10px;
+    transition: background var(--transition-fast), border-color var(--transition-fast),
+        color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.primary-action {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 94%, #ffffff), var(--accent));
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 35%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.primary-action:hover:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.primary-action:active:not(:disabled),
+.ghost-action:active:not(:disabled),
+.danger-action:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.ghost-action:hover:not(:disabled) {
+    border-color: var(--border-strong);
+}
+
+.danger-action {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 92%, #ffffff), var(--danger));
+    border-color: var(--danger);
+}
+
+.icon-button:hover:not(:disabled) {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+}
+
+/* --- טאבים בצבע המותג במקום שחור --- */
+.tool-tab {
+    border-radius: 999px;
+    font-weight: 600;
+    color: var(--text-2);
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.tool-tab:hover {
+    color: var(--text);
+    background: var(--surface-2);
+}
+
+.tool-tab.is-active {
+    color: var(--accent-fg);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.tool-tab b {
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.tool-tab:not(.is-active) b {
+    background: var(--surface-3);
+    color: var(--text-2);
+}
+
+/* --- פאנלים וכרטיסים: פינות רכות יותר --- */
+.auth-panel,
+.panel,
+.empty-screen {
+    border-radius: var(--radius-md, 14px);
+}
+
+.empty-screen {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    padding: 44px 20px;
+    text-align: center;
+    color: var(--text-2);
+    background:
+        radial-gradient(420px 180px at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%),
+        var(--surface);
+}
+
+.empty-screen svg,
+.empty-screen i {
+    width: 42px;
+    height: 42px;
+    color: var(--accent-text);
+    opacity: 0.85;
+}
+
+.empty-screen h1 {
+    font-size: 1.3rem;
+    margin: 4px 0 0;
+}
+
+/* --- שדות קלט: גבול חי יותר ומיקוד ברור --- */
+.plain-input,
+.search-input-row input {
+    border-radius: 10px;
+    background: var(--surface);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.plain-input:hover,
+.search-input-row input:hover {
+    border-color: var(--border-strong);
+}
+
+.plain-input:focus,
+.search-input-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+::placeholder {
+    color: var(--text-3);
+    opacity: 1;
+}
+
+/* --- כותרת עליונה של עמוד: eyebrow בצבע המותג --- */
+.eyebrow {
+    color: var(--accent-text);
+    letter-spacing: 0.06em;
+}
+
+/* --- workflow cards: מיושר ל-Design A הכחול --- */
+.workflow-card {
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 8%, transparent), transparent 46%),
+        var(--surface);
+}
+
+.workflow-card::after {
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed));
+    opacity: 0.35;
+}
+
+.workflow-card.is-active::after {
+    opacity: 1;
+}
+
+.workflow-card.is-active {
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.workflow-card span {
+    color: var(--accent-text);
+}
+
+/* --- sub-nav: מטרת מגע נוחה יותר בלי לשבור את עיצוב הגלולות --- */
+.sub-nav-item {
+    min-height: 40px;
+}
+
+/* --- תמונות בכרטיסים: זום עדין רק במכשירים עם עכבר --- */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .place-card .place-image img {
+        transition: transform 0.35s ease;
+    }
+
+    .place-card:hover .place-image img {
+        transform: scale(1.03);
+    }
+}
+
+/* --- מובייל: מטרות מגע גדולות ונשימה נכונה --- */
+@media (max-width: 768px) {
+    .icon-button,
+    .primary-action,
+    .ghost-action,
+    .danger-action,
+    .apple-action {
+        min-height: 46px;
+    }
+
+    .small-action {
+        min-height: 40px;
+    }
+
+    .sub-nav-item {
+        min-height: 48px;
+        padding-inline: 14px;
+    }
+
+    .page-heading {
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .nav-drawer-subitem.is-active {
+        background: var(--accent-weak);
+    }
+
+    dialog {
+        max-width: 100vw;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .primary-action,
+    .ghost-action,
+    .danger-action,
+    .icon-button,
+    .tool-tab {
+        transition: none;
+    }
+}
+
+/* ============================================================
+   DESIGN A+ — דף הכניסה
+   ============================================================ */
+.login-body {
+    background:
+        radial-gradient(900px 480px at 88% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 62%),
+        radial-gradient(720px 420px at -6% 100%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 64%),
+        var(--bg);
+}
+
+.login-hero,
+.login-card {
+    border-radius: 24px;
+    backdrop-filter: none;
+}
+
+.login-hero {
+    background:
+        radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
+        var(--surface);
+}
+
+.login-card {
+    padding: 28px 24px;
+}
+
+.login-feature-list svg,
+.login-note-card svg {
+    color: var(--accent-text);
+}
+
+.login-note-card {
+    background: linear-gradient(180deg, var(--accent-weak), var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+#googleSignInButton {
+    min-height: 52px;
+    font-size: 1.02rem;
+    border-radius: 12px;
+}
+
+.login-metric-card,
+.login-feature-list>div {
+    transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+@media (hover: hover) {
+    .login-metric-card:hover,
+    .login-feature-list>div:hover {
+        border-color: var(--border-strong);
+        transform: translateY(-1px);
+    }
+}
+
+/* במובייל: קודם כרטיס ההתחברות, אחר כך ההסברים */
+@media (max-width: 820px) {
+    .login-card {
+        order: -1;
+    }
+}

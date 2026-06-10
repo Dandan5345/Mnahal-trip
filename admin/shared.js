@@ -407,6 +407,15 @@ export function createEmptyState(icon, title, message) {
   return `<div class="empty-screen"><i data-lucide="${icon}"></i><h1>${title}</h1><p>${message}</p></div>`;
 }
 
+// משהה קריאות רינדור צפופות (למשל הקלדה בחיפוש) כדי שהדף לא ייתקע.
+export function debounce(fn, wait = 160) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
 const IMGBB_MAX_BYTES = 32 * 1024 * 1024;
 export const ADMIN_WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
 const ADMIN_R2_WORKFLOW_URL = ADMIN_WORKFLOW_URL;

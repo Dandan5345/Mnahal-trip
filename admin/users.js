@@ -1,4 +1,4 @@
-import { createAdminShell, attachSharedUi } from "./shared.js";
+import { createAdminShell, attachSharedUi, debounce } from "./shared.js";
 
 const app = document.getElementById("app");
 
@@ -77,9 +77,10 @@ function renderPage() {
 
 function bindUsers() {
   $("reloadUsersButton")?.addEventListener("click", loadUsers);
+  const debouncedRenderUsers = debounce(renderUsers);
   $("userSearchInput")?.addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
-    renderUsers();
+    debouncedRenderUsers();
   });
 }
 

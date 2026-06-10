@@ -11,7 +11,8 @@ import {
     renderPromptNotesField,
     bindPromptNotesInput,
     getPromptNotes,
-    combinePromptWithNotes
+    combinePromptWithNotes,
+    debounce
 } from "./shared.js";
 import { createLinkFixer } from "./link-fixer.js";
 
@@ -360,11 +361,14 @@ function bindActions() {
     $("parseHotelJsonButton")?.addEventListener("click", parseHotelJson);
     $("saveHotelDraftsButton")?.addEventListener("click", saveHotelDrafts);
     $("loadSavedHotelsButton")?.addEventListener("click", loadSavedHotels);
+    const debouncedManagerSearch = debounce((value) => {
+        updateManageSearchSuggestions(value);
+        renderDrafts();
+    });
     $("hotelManagerSearchInput")?.addEventListener("input", (event) => {
         state.manageSearch = event.target.value;
         state.destination = null;
-        updateManageSearchSuggestions(event.target.value);
-        renderDrafts();
+        debouncedManagerSearch(event.target.value);
     });
     $("hotelEditDialog")?.querySelector("form")?.addEventListener("submit", async () => {
         const id = state.editingDraftId;

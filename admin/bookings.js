@@ -11,7 +11,8 @@ import {
     renderPromptNotesField,
     bindPromptNotesInput,
     getPromptNotes,
-    combinePromptWithNotes
+    combinePromptWithNotes,
+    debounce
 } from "./shared.js";
 import { createLinkFixer } from "./link-fixer.js";
 
@@ -343,11 +344,14 @@ function bindActions() {
     $("parseBookingJsonButton")?.addEventListener("click", parseBookingJson);
     $("saveBookingDraftsButton")?.addEventListener("click", saveBookingDrafts);
     $("loadSavedBookingsButton")?.addEventListener("click", loadSavedBookings);
+    const debouncedManagerSearch = debounce((value) => {
+        updateManageSearchSuggestions(value);
+        renderDrafts();
+    });
     $("bookingManagerSearchInput")?.addEventListener("input", (event) => {
         state.manageSearch = event.target.value;
         state.destination = null;
-        updateManageSearchSuggestions(event.target.value);
-        renderDrafts();
+        debouncedManagerSearch(event.target.value);
     });
     $("bookingEditDialog")?.querySelector("form")?.addEventListener("submit", async () => {
         const id = state.editingDraftId;
@@ -398,9 +402,10 @@ function bindActions() {
         searchRemoteImages($("bookingImageSearchInput").value.trim());
     }));
     $("useBookingImageGalleryButton")?.addEventListener("click", applyBookingGalleryImage);
+    const debouncedLinkCandidates = debounce(renderLinkCandidates);
     $("linkPlaceSearchInput").addEventListener("input", (event) => {
         state.linkQuery = event.target.value;
-        renderLinkCandidates();
+        debouncedLinkCandidates();
     });
 }
 
