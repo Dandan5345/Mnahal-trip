@@ -692,14 +692,83 @@ export async function requestAdminAiCompletion(user, { systemPrompt, userPrompt,
   return fullText.trim();
 }
 
+function unwrapAngleBrackets(value) {
+  return String(value ?? "").replace(/^<+|>+$/g, "").trim();
+}
+
+function normalizeHttpUrl(value) {
+  const raw = unwrapAngleBrackets(String(value ?? "").trim());
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^www\./i.test(raw)) return `https://${raw}`;
+  return "";
+}
+
+function isSearchRedirectUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if ((host.includes("google.") || host === "google.com") && (parsed.pathname.includes("/search") || parsed.searchParams.has("q"))) return true;
+    if (host.includes("bing.com") && parsed.pathname.includes("/search")) return true;
+    if (host.includes("duckduckgo.com")) return true;
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isLikelyDirectMediaUrl(url) {
+  if (!url) return false;
+  if (/\.(jpe?g|png|gif|webp|avif|svg|bmp)(\?|#|$)/i.test(url)) return true;
+  return /(?:agoda\.net|bstatic\.com|booking\.com|cloudfront\.net|unsplash\.com|wikimedia\.org|imgur\.com|cdn\.)/i.test(url);
+}
+
+function extractUrlFromSearchRedirect(url) {
+  if (!isSearchRedirectUrl(url)) return "";
+  try {
+    const parsed = new URL(url);
+    const candidate = parsed.searchParams.get("q") || parsed.searchParams.get("url") || "";
+    if (!candidate) return "";
+    return normalizeHttpUrl(decodeURIComponent(candidate));
+  } catch (_) {
+    return "";
+  }
+}
+
+function pickMarkdownUrl(label, href) {
+  const labelUrl = normalizeHttpUrl(label);
+  const hrefUrl = normalizeHttpUrl(href);
+  if (labelUrl && hrefUrl) {
+    if (isSearchRedirectUrl(hrefUrl) && !isSearchRedirectUrl(labelUrl)) return labelUrl;
+    if (isLikelyDirectMediaUrl(labelUrl) && !isLikelyDirectMediaUrl(hrefUrl)) return labelUrl;
+    return hrefUrl;
+  }
+  return hrefUrl || labelUrl;
+}
+
 // Strips markdown/auto-link wrapping so a bare URL is stored.
+// When AI returns [image-url](google-search-url), keep the direct URL in the label.
 export function cleanBookingUrl(value) {
   let raw = String(value ?? "").trim();
   if (!raw) return "";
-  const markdown = raw.match(/\[[^\]]*\]\(\s*([^)\s]+)\s*\)/);
-  if (markdown) return markdown[1].trim();
-  raw = raw.replace(/^<+|>+$/g, "").trim();
-  if (raw.startsWith("[") && raw.endsWith("]") && !raw.includes("(")) raw = raw.slice(1, -1).trim();
+
+  const markdown = raw.match(/\[([^\]]+)\]\(\s*([^)]+)\s*\)/);
+  if (markdown) {
+    raw = pickMarkdownUrl(markdown[1], markdown[2]);
+  } else {
+    raw = unwrapAngleBrackets(raw);
+    if (raw.startsWith("[") && raw.endsWith("]") && !raw.includes("(")) {
+      raw = normalizeHttpUrl(raw.slice(1, -1).trim()) || raw.slice(1, -1).trim();
+    } else {
+      raw = normalizeHttpUrl(raw) || raw;
+    }
+  }
+
+  if (isSearchRedirectUrl(raw)) {
+    const extracted = extractUrlFromSearchRedirect(raw);
+    if (extracted) return extracted;
+  }
   return raw;
 }
 

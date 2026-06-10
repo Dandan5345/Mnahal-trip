@@ -531,7 +531,9 @@ ${coords}
             "imageUrl": "https://... או null"
         }
     ]
-}`.trim();
+}
+
+חשוב: bookingUrl ו-imageUrl חייבים להיות קישור ישיר בלבד — בלי markdown, בלי סוגריים מרובעים, ובלי עטיפה של קישור חיפוש בגוגל.`.trim();
 }
 
 async function pasteHotelJson() {
@@ -564,8 +566,8 @@ async function parseHotelJson() {
                 shabbatFriendlyReason: text(item.shabbatFriendlyReason),
                 shabbatKosherNotes: text(item.shabbatKosherNotes || item.kosherNotes || item.shabbatNotes),
                 breakfast: text(item.breakfast),
-                bookingUrl: text(item.bookingUrl || item.url),
-                imageUrl: nullable(text(item.imageUrl || item.photoUrl)),
+                bookingUrl: cleanBookingUrl(item.bookingUrl || item.url),
+                imageUrl: nullable(cleanBookingUrl(item.imageUrl || item.photoUrl)),
                 imagePixabayId: hotelsPixabayIdValue(item.imagePixabayId ?? item.pixabayId),
                 imagePixabayPageUrl: nullable(text(item.imagePixabayPageUrl || item.pixabayPageUrl)),
                 lat: number(item.lat || item.latitude),
@@ -830,8 +832,8 @@ function hotelDraftFromTemplateHotel(hotel) {
         shabbatFriendlyReason: text(hotel.shabbatFriendlyReason),
         shabbatKosherNotes: text(hotel.shabbatKosherNotes || hotel.notes),
         breakfast: text(hotel.breakfast),
-        bookingUrl: text(hotel.bookingLink || hotel.bookingUrl),
-        imageUrl: nullable(text(hotel.imageUrl)),
+        bookingUrl: cleanBookingUrl(hotel.bookingLink || hotel.bookingUrl),
+        imageUrl: nullable(cleanBookingUrl(hotel.imageUrl)),
         imagePixabayId: hotelsPixabayIdValue(hotel.imagePixabayId),
         imagePixabayPageUrl: nullable(text(hotel.imagePixabayPageUrl))
     };

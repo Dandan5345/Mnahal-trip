@@ -14,6 +14,7 @@ import {
     bindPromptNotesInput,
     getPromptNotes,
     combinePromptWithNotes,
+    cleanBookingUrl,
     debounce
 } from "./shared.js";
 
@@ -2161,8 +2162,8 @@ function hotelFromTemplatePayload(hotel) {
         shabbatFriendlyReason: text(hotel.shabbatFriendlyReason),
         shabbatKosherNotes: text(hotel.shabbatKosherNotes || hotel.notes),
         breakfast: text(hotel.breakfast),
-        bookingUrl: text(hotel.bookingLink || hotel.bookingUrl),
-        imageUrl: nullable(hotel.imageUrl),
+        bookingUrl: cleanBookingUrl(hotel.bookingLink || hotel.bookingUrl),
+        imageUrl: nullable(cleanBookingUrl(hotel.imageUrl)),
         imagePixabayId: tripsPixabayIdValue(hotel.imagePixabayId),
         imagePixabayPageUrl: nullable(hotel.imagePixabayPageUrl),
         lat: jsonDouble(hotel, ["lat", "latitude"]),
@@ -2179,11 +2180,11 @@ function bookingFromTemplatePayload(booking) {
         title: text(booking.title),
         summary: text(booking.summary),
         priceRange: text(booking.priceRange),
-        bookingUrl: text(booking.bookingUrl),
+        bookingUrl: cleanBookingUrl(booking.bookingUrl),
         destination: text(booking.destination),
         lat: jsonDouble(booking, ["lat", "latitude"]),
         lon: jsonDouble(booking, ["lon", "lng", "longitude"]),
-        imageUrl: nullable(booking.imageUrl),
+        imageUrl: nullable(cleanBookingUrl(booking.imageUrl)),
         imageCredit: nullable(booking.imageCredit),
         imageCreditUrl: nullable(booking.imageCreditUrl),
         imagePixabayId: tripsPixabayIdValue(booking.imagePixabayId),
@@ -3657,19 +3658,8 @@ function jsonString(source, keys) {
     return "";
 }
 
-// The AI sometimes returns links wrapped in markdown/auto-link syntax
-// (e.g. "[https://x](https://x)" or "<https://x>"), which would be stored
-// literally and break the link. Strip the wrapping and keep the bare URL.
 function cleanUrl(value) {
-    let raw = text(value);
-    if (!raw) return "";
-    const markdown = raw.match(/\[[^\]]*\]\(\s*([^)\s]+)\s*\)/);
-    if (markdown) return markdown[1].trim();
-    raw = raw.replace(/^<+|>+$/g, "").trim();
-    if (raw.startsWith("[") && raw.endsWith("]") && !raw.includes("(")) {
-        raw = raw.slice(1, -1).trim();
-    }
-    return raw;
+    return cleanBookingUrl(value);
 }
 
 function jsonUrl(source, keys) {
