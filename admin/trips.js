@@ -100,7 +100,8 @@ function createChatState(dayIndex) {
         liveAnswer: "",
         pendingDay: null,
         attachments: [],
-        markedNotes: []
+        markedNotes: [],
+        userScrolledChat: false
     };
 }
 
@@ -175,7 +176,7 @@ function applyDeepSeekSseEvent(event, handlers, accum) {
         accum.reasoning = text(event.reasoning);
         handlers.onReasoningDelta?.(accum.reasoning);
     }
-    const contentPiece = text(event.contentDelta || event.content || event.answer || event.message || event.output || "");
+    const contentPiece = typeof event.contentDelta === "string" ? event.contentDelta : "";
     if (contentPiece) {
         accum.text += contentPiece;
         handlers.onContentDelta?.(contentPiece);
@@ -767,10 +768,10 @@ async function startChatFromSetup() {
     }
 }
 
-function chatReasoningHtml(reasoning, isLive = false) {
+function chatReasoningHtml(reasoning, { isLive = false, collapsed = false } = {}) {
     if (!text(reasoning)) return "";
-    return `<div class="chat-reasoning-panel${isLive ? " is-live" : ""}">
-        <button type="button" class="chat-reasoning-toggle" aria-expanded="true">
+    return `<div class="chat-reasoning-panel${isLive ? " is-live" : ""}${collapsed ? " is-collapsed" : ""}">
+        <button type="button" class="chat-reasoning-toggle" aria-expanded="${collapsed ? "false" : "true"}">
             <i data-lucide="brain"></i>
             <span>חשיבה${isLive ? " · בזמן אמת" : ""}</span>
             <i data-lucide="chevron-down" class="chat-reasoning-chevron"></i>
@@ -785,7 +786,7 @@ function chatMessageHtml(msg) {
         return `<div class="chat-msg chat-msg-user"><div class="chat-bubble">${escapeHtml(msg.text).replace(/\n/g, "<br>")}${attachHtml}</div></div>`;
     }
     const proposalChip = msg.hasProposal ? `<div class="chat-proposal-chip"><i data-lucide="wand-2"></i>עדכון מוכן לתצוגה מקדימה</div>` : "";
-    const reasoningHtml = !msg.hideReasoning && msg.reasoning ? chatReasoningHtml(msg.reasoning) : "";
+    const reasoningHtml = !msg.hideReasoning && msg.reasoning ? chatReasoningHtml(msg.reasoning, { collapsed: true }) : "";
     const body = msg.text ? escapeHtml(msg.text).replace(/\n/g, "<br>") : "";
     return `<div class="chat-msg chat-msg-ai"><span class="chat-avatar small"><i data-lucide="sparkles"></i></span><div class="chat-bubble">${reasoningHtml}${body}${proposalChip}</div></div>`;
 }
@@ -793,7 +794,10 @@ function chatMessageHtml(msg) {
 function renderChatLiveBubble() {
     let content = "";
     const hideReasoning = Boolean(state.chat.hideLiveReasoning);
-    if (!hideReasoning && state.chat.liveReasoning) content += chatReasoningHtml(state.chat.liveReasoning, true);
+    if (!hideReasoning && state.chat.liveReasoning) content += chatReasoningHtml(state.chat.liveReasoning, {
+        isLive: true,
+        collapsed: Boolean(state.chat.liveAnswer)
+    });
     if (state.chat.liveAnswer) {
         content += escapeHtml(state.chat.liveAnswer).replace(/\n/g, "<br>");
     } else {
@@ -810,7 +814,9 @@ function chatShouldAutoScroll(container) {
 function renderChat() {
     const container = $("chatMessages");
     if (!container || !state.chat) return;
-    const stickToBottom = chatShouldAutoScroll(container);
+    const previousScrollTop = container.scrollTop;
+    const previousScrollHeight = container.scrollHeight;
+    const stickToBottom = !state.chat.userScrolledChat && chatShouldAutoScroll(container);
     let html = state.chat.messages.map(chatMessageHtml).join("");
     if (state.chat.sending) html += renderChatLiveBubble();
     container.innerHTML = html;
@@ -822,7 +828,12 @@ function renderChat() {
     if (sendButton) sendButton.disabled = state.chat.sending;
     const chatInput = $("chatInput");
     if (chatInput) chatInput.disabled = state.chat.sending;
-    if (stickToBottom) container.scrollTop = container.scrollHeight;
+    if (stickToBottom) {
+        container.scrollTop = container.scrollHeight;
+    } else {
+        container.scrollTop = Math.min(previousScrollTop, Math.max(0, container.scrollHeight - container.clientHeight));
+        if (!previousScrollHeight) container.scrollTop = 0;
+    }
     refreshIcons();
 }
 
@@ -965,7 +976,7 @@ function extractAssistantJsonCandidate(value) {
 
 function extractChatTextFromParsedObject(obj) {
     if (!obj || typeof obj !== "object") return "";
-    for (const key of ["message", "reply", "response", "text", "greeting", "answer", "chatText"]) {
+    for (const key of ["answer", "reply", "message", "response", "chatText", "greeting", "text"]) {
         const candidate = text(obj[key]);
         if (candidate) return candidate;
     }
@@ -1115,6 +1126,7 @@ async function sendInitialChatPrompt() {
     state.chat.hideLiveReasoning = true;
     state.chat.liveAnswer = "";
     state.chat.liveReasoning = "";
+    state.chat.userScrolledChat = false;
     renderChat();
     try {
         const payload = await requestChatReply(buildDayEditInitPrompt(state.chat), { allowFallback: false });
@@ -1150,6 +1162,7 @@ async function sendChatMessage() {
     state.chat.sending = true;
     state.chat.liveAnswer = "";
     state.chat.liveReasoning = "";
+    state.chat.userScrolledChat = false;
     closeChatPlusMenus();
     renderChat();
     try {
@@ -1476,6 +1489,10 @@ function bindChatUi() {
         toggle.setAttribute("aria-expanded", expanded ? "false" : "true");
         panel.classList.toggle("is-collapsed", expanded);
     });
+    $("chatMessages")?.addEventListener("scroll", (event) => {
+        if (!state.chat) return;
+        state.chat.userScrolledChat = !chatShouldAutoScroll(event.currentTarget);
+    }, { passive: true });
 }
 
 function bindRecommendationImageDialog() {
