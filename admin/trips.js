@@ -685,18 +685,28 @@ function renderChatPlacesDialog() {
     return `
         <dialog class="chat-places-dialog" id="chatPlacesDialog">
             <form method="dialog" class="chat-places-shell">
-                <div class="dialog-header">
-                    <div><p class="eyebrow">מקומות שמורים</p><h2>בחר מקומות לשליחה ל-AI</h2></div>
-                    <button class="icon-button" value="cancel" aria-label="סגור"><i data-lucide="x"></i></button>
-                </div>
-                <div class="search-input-row">
-                    <i data-lucide="search"></i>
-                    <input id="chatPlacesSearch" type="text" placeholder="חיפוש מקום" autocomplete="off" />
+                <div class="chat-places-head">
+                    <div class="dialog-header">
+                        <div class="chat-places-title"><span class="chat-avatar small"><i data-lucide="map-pinned"></i></span><div><p class="eyebrow">מקומות שמורים</p><h2>בחר מקומות לשליחה ל-AI</h2></div></div>
+                        <button class="icon-button" value="cancel" aria-label="סגור"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="search-input-row chat-places-search-row">
+                        <i data-lucide="search"></i>
+                        <input id="chatPlacesSearch" type="text" placeholder="חיפוש לפי שם, כתובת או סוג" autocomplete="off" />
+                    </div>
+                    <div class="chat-places-filters" id="chatPlacesFilters" role="tablist">
+                        <button class="chat-filter-chip is-active" type="button" data-place-filter="all">הכל <b id="chatPlacesCountAll">0</b></button>
+                        <button class="chat-filter-chip" type="button" data-place-filter="unused">לא בלו״ז <b id="chatPlacesCountUnused">0</b></button>
+                        <button class="chat-filter-chip" type="button" data-place-filter="scheduled">בלו״ז <b id="chatPlacesCountScheduled">0</b></button>
+                    </div>
                 </div>
                 <div class="chat-places-grid" id="chatPlacesGrid"></div>
-                <div class="action-row split-actions">
-                    <span class="count-pill" id="chatPlacesCount">0 נבחרו</span>
-                    <button class="ghost-action" type="button" id="chatPlacesSelectUnusedButton"><i data-lucide="list-plus"></i><span>בחר את כל המקומות שלא בלו״ז</span></button>
+                <div class="chat-places-foot">
+                    <div class="chat-places-foot-meta">
+                        <span class="count-pill" id="chatPlacesCount">0 נבחרו</span>
+                        <button class="chat-text-link" type="button" id="chatPlacesSelectUnusedButton"><i data-lucide="list-plus"></i><span>בחר את כל מה שלא בלו״ז</span></button>
+                        <button class="chat-text-link chat-text-link-muted" type="button" id="chatPlacesClearButton"><i data-lucide="eraser"></i><span>נקה</span></button>
+                    </div>
                     <button class="primary-action" type="button" id="chatPlacesConfirmButton"><i data-lucide="check"></i><span>צרף לשיחה</span></button>
                 </div>
             </form>
@@ -893,7 +903,9 @@ function dayFromAiJson(aiDay, dayNumber, fallbackDay) {
 function buildDayEditSystemPrompt() {
     return `אתה עוזר ידידותי שעוזר למנהל לערוך לו״ז של יום בודד בטיול TripTap, בשיחה טבעית בעברית.
 
-בהודעת המשתמש תקבל JSON עם ההקשר: tripName, destination, dayTitle, day (אובייקט היום הנוכחי עם items), conversationSoFar (היסטוריית השיחה), attachedPlaces (מקומות שמורים שהמשתמש צירף, אם יש), markedExcerpts (קטעים מהלו״ז שהמשתמש סימן במפורש), ו-userRequest (ההודעה החדשה של המשתמש).
+בהודעת המשתמש תקבל JSON עם ההקשר: tripName, destination, dayTitle, day (אובייקט היום הנוכחי עם items), conversationSoFar (היסטוריית השיחה — כל הודעה עשויה לכלול גם attachedPlaces משלה), attachedPlaces (מקומות שמורים שהמשתמש צירף בהודעה הנוכחית, אם יש), markedExcerpts (קטעים מהלו״ז שהמשתמש סימן במפורש), ו-userRequest (ההודעה החדשה של המשתמש).
+
+זיכרון מקומות: כל המקומות שצורפו אי-פעם בשיחה (גם בהודעות קודמות, מתוך conversationSoFar[].attachedPlaces) זמינים לך לכל אורך השיחה. גם אם המשתמש שלח רשימה של עשרות מקומות בהודעה קודמת — הם עדיין בהקשר, זכור אותם והתייחס אליהם בהודעות הבאות. אל תאמר שאינך זוכר מקומות שכבר צורפו.
 
 איך לנהוג:
 1. דבר טבעי, חם ולעניין, כמו בשיחת וואטסאפ. ענה בעברית.
@@ -928,6 +940,16 @@ function buildDayEditInitPrompt(chat) {
     });
 }
 
+function placeToAiContext(place) {
+    return {
+        placeId: place.id,
+        name: place.name,
+        type: place.type,
+        address: place.location,
+        shortDescription: place.shortDescription || place.description || ""
+    };
+}
+
 function buildDayEditUserPrompt(chat, newUserText, attachments, markedNotes) {
     const day = state.parsedTemplate.days[chat.dayIndex];
     return JSON.stringify({
@@ -935,17 +957,20 @@ function buildDayEditUserPrompt(chat, newUserText, attachments, markedNotes) {
         destination: state.destination?.label || text($("tripDestinationInput")?.value) || "",
         dayTitle: day.dayTitle,
         day: dayToAiSchema(day),
-        conversationSoFar: chat.messages.map((msg) => ({
-            role: msg.role,
-            text: msg.text + (msg.hasProposal ? " [הצעת עדכון ללו״ז]" : "")
-        })),
-        attachedPlaces: (attachments || []).map((place) => ({
-            placeId: place.id,
-            name: place.name,
-            type: place.type,
-            address: place.location,
-            shortDescription: place.shortDescription || place.description || ""
-        })),
+        // Carry every message's attached places through the whole history so the
+        // model keeps remembering large lists (e.g. 50 places) on later turns —
+        // not only the places attached to the current message.
+        conversationSoFar: chat.messages.map((msg) => {
+            const entry = {
+                role: msg.role,
+                text: msg.text + (msg.hasProposal ? " [הצעת עדכון ללו״ז]" : "")
+            };
+            if (Array.isArray(msg.attachments) && msg.attachments.length) {
+                entry.attachedPlaces = msg.attachments.map(placeToAiContext);
+            }
+            return entry;
+        }),
+        attachedPlaces: (attachments || []).map(placeToAiContext),
         markedExcerpts: markedNotes || [],
         userRequest: newUserText
     });
@@ -1236,10 +1261,30 @@ function openChatPlacesDialog() {
     if (!state.chat) return;
     closeChatPlusMenus();
     state.chatPlacesSelected = new Set();
+    state.chatPlacesFilter = "all";
     if ($("chatPlacesSearch")) $("chatPlacesSearch").value = "";
+    syncChatPlacesFilterChips();
     renderChatPlacesGrid("");
     $("chatPlacesDialog")?.showModal();
     refreshIcons();
+}
+
+function setChatPlacesFilter(filter) {
+    state.chatPlacesFilter = ["all", "unused", "scheduled"].includes(filter) ? filter : "all";
+    syncChatPlacesFilterChips();
+    renderChatPlacesGrid($("chatPlacesSearch")?.value || "");
+}
+
+function syncChatPlacesFilterChips() {
+    const active = state.chatPlacesFilter || "all";
+    $("chatPlacesFilters")?.querySelectorAll("[data-place-filter]").forEach((chip) => {
+        chip.classList.toggle("is-active", chip.dataset.placeFilter === active);
+    });
+}
+
+function clearChatPlacesSelection() {
+    state.chatPlacesSelected = new Set();
+    renderChatPlacesGrid($("chatPlacesSearch")?.value || "");
 }
 
 function findPlaceScheduleUsages(place) {
@@ -1273,23 +1318,42 @@ function renderChatPlacesGrid(query) {
     const grid = $("chatPlacesGrid");
     if (!grid) return;
     const normalized = normalize(query);
-    const places = state.promptPlaces.filter((place) => !normalized || normalize(`${place.name} ${place.location} ${place.type}`).includes(normalized));
-    grid.innerHTML = places.length ? places.map((place) => {
-        const selected = state.chatPlacesSelected?.has(place.id);
+    const filter = state.chatPlacesFilter || "all";
+
+    // Precompute schedule status once so filtering/counters stay cheap with many places.
+    const annotated = state.promptPlaces.map((place) => {
         const scheduleUsages = findPlaceScheduleUsages(place);
-        const inSchedule = scheduleUsages.length > 0;
+        return { place, scheduleUsages, inSchedule: scheduleUsages.length > 0 };
+    });
+    const totalUnused = annotated.filter((entry) => !entry.inSchedule).length;
+    if ($("chatPlacesCountAll")) $("chatPlacesCountAll").textContent = String(annotated.length);
+    if ($("chatPlacesCountUnused")) $("chatPlacesCountUnused").textContent = String(totalUnused);
+    if ($("chatPlacesCountScheduled")) $("chatPlacesCountScheduled").textContent = String(annotated.length - totalUnused);
+
+    const visible = annotated.filter((entry) => {
+        if (filter === "unused" && entry.inSchedule) return false;
+        if (filter === "scheduled" && !entry.inSchedule) return false;
+        if (!normalized) return true;
+        return normalize(`${entry.place.name} ${entry.place.location} ${entry.place.type}`).includes(normalized);
+    });
+
+    grid.innerHTML = visible.length ? visible.map(({ place, scheduleUsages, inSchedule }) => {
+        const selected = state.chatPlacesSelected?.has(place.id);
         const scheduleNote = inSchedule
-            ? `<span class="chat-place-schedule-note">כבר בלוז: ${escapeHtml(scheduleUsages.map(formatPlaceScheduleUsage).join(" · "))}</span>`
-            : "";
+            ? `<span class="chat-place-badge" title="${escapeAttr(scheduleUsages.map(formatPlaceScheduleUsage).join(" · "))}"><i data-lucide="calendar-check"></i>בלו״ז</span>`
+            : `<span class="chat-place-badge is-free"><i data-lucide="sparkle"></i>פנוי</span>`;
         const thumb = place.coverImageUrl ? `<img src="${escapeAttr(place.coverImageUrl)}" alt="" loading="lazy">` : `<span class="chat-place-emoji">${escapeHtml(place.coverEmoji || "📍")}</span>`;
-        return `<button class="chat-place-card${selected ? " is-selected" : ""}${inSchedule ? " is-in-schedule" : ""}" type="button" data-place-id="${escapeAttr(place.id)}">
+        return `<button class="chat-place-card${selected ? " is-selected" : ""}${inSchedule ? " is-in-schedule" : ""}" type="button" data-place-id="${escapeAttr(place.id)}" aria-pressed="${selected ? "true" : "false"}">
             <span class="chat-place-thumb">${thumb}</span>
             <span class="chat-place-info"><b>${escapeHtml(place.name)}</b><small>${escapeHtml(place.location || place.type || "")}</small>${scheduleNote}</span>
             <span class="chat-place-check"><i data-lucide="check"></i></span>
         </button>`;
-    }).join("") : emptyHtml("לא נמצאו מקומות שמורים. טען מקומות בשלב 1.");
+    }).join("") : emptyHtml(state.promptPlaces.length ? "אין מקומות שתואמים את הסינון." : "לא נמצאו מקומות שמורים. טען מקומות בשלב 1.");
     grid.querySelectorAll("[data-place-id]").forEach((button) => button.addEventListener("click", () => toggleChatPlaceSelection(button.dataset.placeId)));
-    if ($("chatPlacesCount")) $("chatPlacesCount").textContent = `${state.chatPlacesSelected?.size || 0} נבחרו`;
+    const selectedCount = state.chatPlacesSelected?.size || 0;
+    if ($("chatPlacesCount")) $("chatPlacesCount").textContent = selectedCount ? `${selectedCount} נבחרו` : "לא נבחרו מקומות";
+    const confirm = $("chatPlacesConfirmButton");
+    if (confirm) confirm.disabled = selectedCount === 0;
     refreshIcons();
 }
 
@@ -1308,7 +1372,10 @@ function selectUnusedChatPlaces() {
         return;
     }
     unused.forEach((place) => state.chatPlacesSelected.add(place.id));
+    state.chatPlacesFilter = "unused";
+    syncChatPlacesFilterChips();
     renderChatPlacesGrid($("chatPlacesSearch")?.value || "");
+    showToast(`נבחרו ${unused.length} מקומות שלא בלו״ז.`);
 }
 
 function confirmChatPlaces() {
@@ -1486,6 +1553,8 @@ function bindChatUi() {
     const debouncedChatPlacesGrid = debounce((value) => renderChatPlacesGrid(value));
     $("chatPlacesSearch")?.addEventListener("input", (event) => debouncedChatPlacesGrid(event.target.value));
     $("chatPlacesSelectUnusedButton")?.addEventListener("click", selectUnusedChatPlaces);
+    $("chatPlacesClearButton")?.addEventListener("click", clearChatPlacesSelection);
+    $("chatPlacesFilters")?.querySelectorAll("[data-place-filter]").forEach((chip) => chip.addEventListener("click", () => setChatPlacesFilter(chip.dataset.placeFilter)));
     $("chatPlacesConfirmButton")?.addEventListener("click", confirmChatPlaces);
     $("chatDiffApplyButton")?.addEventListener("click", applyChatChanges);
     $("chatDiffBackButton")?.addEventListener("click", () => $("chatDiffDialog")?.close());
