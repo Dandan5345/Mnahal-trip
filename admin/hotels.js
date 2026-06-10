@@ -7,7 +7,11 @@ import {
     adminPixabaySearch,
     adminPixabayLookupById,
     adminUnsplashSearch,
-    cleanBookingUrl
+    cleanBookingUrl,
+    renderPromptNotesField,
+    bindPromptNotesInput,
+    getPromptNotes,
+    combinePromptWithNotes
 } from "./shared.js";
 import { createLinkFixer } from "./link-fixer.js";
 
@@ -183,6 +187,8 @@ function renderComposeView() {
                         <span>בחר יעד מהרשימה.</span>
                     </div>
 
+                    ${renderPromptNotesField("hotels-compose", "hotelPromptNotesInput")}
+
                     <div class="action-row">
                         <button class="primary-action" type="button" id="copyHotelPromptButton">
                             <i data-lucide="copy" aria-hidden="true"></i>
@@ -348,6 +354,7 @@ async function persistSingleHotelDraft(draft) {
 }
 
 function bindActions() {
+    bindPromptNotesInput("hotels-compose", "hotelPromptNotesInput");
     $("copyHotelPromptButton")?.addEventListener("click", copyHotelPrompt);
     $("pasteHotelJsonButton")?.addEventListener("click", pasteHotelJson);
     $("parseHotelJsonButton")?.addEventListener("click", parseHotelJson);
@@ -480,7 +487,8 @@ async function copyHotelPrompt() {
         setStatus("hotelStatus", "בחר יעד לפני העתקת הפרומפט.", true);
         return;
     }
-    await navigator.clipboard.writeText(buildHotelPrompt(destination));
+    const prompt = combinePromptWithNotes(getPromptNotes("hotelPromptNotesInput"), buildHotelPrompt(destination));
+    await navigator.clipboard.writeText(prompt);
     setStatus("hotelStatus", "פרומפט המלונות הועתק.");
 }
 

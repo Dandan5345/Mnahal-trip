@@ -7,7 +7,11 @@ import {
     adminPixabaySearch,
     adminPixabayLookupById,
     adminUnsplashSearch,
-    cleanBookingUrl
+    cleanBookingUrl,
+    renderPromptNotesField,
+    bindPromptNotesInput,
+    getPromptNotes,
+    combinePromptWithNotes
 } from "./shared.js";
 import { createLinkFixer } from "./link-fixer.js";
 
@@ -164,6 +168,8 @@ function renderBookingComposeView() {
                         <label for="bookingLinksInput">קישורי אטרקציות</label>
                         <textarea id="bookingLinksInput" class="json-input booking-links-input" spellcheck="false" placeholder="הדבק כאן קישורי אטרקציות, כל קישור בשורה נפרדת"></textarea>
                     </div>
+
+                    ${renderPromptNotesField("bookings-compose", "bookingPromptNotesInput")}
 
                     <div class="action-row">
                         <button class="primary-action" type="button" id="copyBookingPromptButton">
@@ -331,6 +337,7 @@ async function initBookingFixLinks() {
 }
 
 function bindActions() {
+    bindPromptNotesInput("bookings-compose", "bookingPromptNotesInput");
     $("copyBookingPromptButton")?.addEventListener("click", copyBookingPrompt);
     $("pasteBookingJsonButton")?.addEventListener("click", pasteBookingJson);
     $("parseBookingJsonButton")?.addEventListener("click", parseBookingJson);
@@ -474,7 +481,8 @@ async function copyBookingPrompt() {
         setStatus("bookingStatus", "הדבק קודם קישורים לאטרקציות.", true);
         return;
     }
-    await navigator.clipboard.writeText(buildStandaloneBookingPrompt(links));
+    const prompt = combinePromptWithNotes(getPromptNotes("bookingPromptNotesInput"), buildStandaloneBookingPrompt(links));
+    await navigator.clipboard.writeText(prompt);
     setStatus("bookingStatus", "פרומפט קישורי ההזמנה הועתק ללוח.");
 }
 

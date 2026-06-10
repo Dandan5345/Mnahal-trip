@@ -6,7 +6,11 @@ import {
   adminPixabaySearch,
   adminPixabayLookupById,
   adminUnsplashSearch,
-  withAppCheckHeaders
+  withAppCheckHeaders,
+  renderPromptNotesField,
+  bindPromptNotesInput,
+  getPromptNotes,
+  combinePromptWithNotes
 } from "./shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
@@ -553,6 +557,8 @@ function renderPage() {
               <span><i data-lucide="list-checks" aria-hidden="true"></i> JSON בלבד</span>
             </div>
 
+            ${renderPromptNotesField("places-import", "importPromptNotesInput")}
+
             <div class="action-row">
               <button class="primary-action" type="button" id="copyPlacePromptButton">
                 <i data-lucide="copy" aria-hidden="true"></i>
@@ -836,6 +842,7 @@ function renderPage() {
               </div>
             </div>
             ${renderAiPreferenceControls("duplicates", "duplicateAiModeNote")}
+            ${renderPromptNotesField("places-duplicates", "duplicatePromptNotesInput")}
             <div class="action-row">
               <button class="primary-action" type="button" id="runLocalDuplicateButton">
                 <i data-lucide="scan-search" aria-hidden="true"></i>
@@ -1492,10 +1499,12 @@ function bindImport() {
     $("importDestinationInput")?.dispatchEvent(new Event("input", { bubbles: true }));
   });
   $("refreshPromptButton").addEventListener("click", updatePromptPreview);
+  bindPromptNotesInput("places-import", "importPromptNotesInput");
   $("jumpToJsonButton")?.addEventListener("click", () => $("jsonPanel").scrollIntoView({ behavior: "smooth" }));
   $("copyPlacePromptButton").addEventListener("click", () => {
     updatePromptPreview();
-    copyText(buildPlacePrompt(), "פרומפט המקומות הועתק.");
+    const prompt = combinePromptWithNotes(getPromptNotes("importPromptNotesInput"), buildPlacePrompt());
+    copyText(prompt, "פרומפט המקומות הועתק.");
   });
   $("copyJsonSchemaButton").addEventListener("click", () => copyText(JSON.stringify([examplePlace()], null, 2), "JSON לדוגמה הועתק."));
   $("pasteJsonButton").addEventListener("click", async () => {
@@ -1534,6 +1543,7 @@ function bindDuplicateTools() {
   });
   $("loadDuplicatePlacesButton").addEventListener("click", () => loadPlacesFor("duplicates"));
   $("selectDuplicateAllButton").addEventListener("click", () => toggleAll("duplicates"));
+  bindPromptNotesInput("places-duplicates", "duplicatePromptNotesInput");
   $("runLocalDuplicateButton").addEventListener("click", runLocalDuplicateCheck);
   $("copyDuplicatePromptButton").addEventListener("click", () => copyDuplicatePrompt());
   $("runAiDuplicateButton").addEventListener("click", runAiDuplicateCheck);
@@ -4157,11 +4167,11 @@ function duplicateDestinationQuery() {
 }
 
 async function copyDuplicatePrompt() {
-  await copyText(
-    buildDuplicatePrompt(duplicateDestinationQuery(), state.duplicatePlaces),
-    "פרומפט כפילויות הועתק.",
-    "duplicateStatus"
+  const prompt = combinePromptWithNotes(
+    getPromptNotes("duplicatePromptNotesInput"),
+    buildDuplicatePrompt(duplicateDestinationQuery(), state.duplicatePlaces)
   );
+  await copyText(prompt, "פרומפט כפילויות הועתק.", "duplicateStatus");
 }
 
 function runLocalDuplicateCheck() {

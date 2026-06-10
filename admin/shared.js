@@ -776,3 +776,46 @@ function activeUnsavedWarningMessage() {
   });
   return guard?.message || "יש לך שינויים שלא נשמרו. לצאת מהעמוד בלי לשמור?";
 }
+
+export const PROMPT_NOTES_STORAGE_PREFIX = "triptap-prompt-notes";
+
+export function loadPromptNotes(feature) {
+  try {
+    return localStorage.getItem(`${PROMPT_NOTES_STORAGE_PREFIX}:${feature}`) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+export function savePromptNotes(feature, value) {
+  try {
+    localStorage.setItem(`${PROMPT_NOTES_STORAGE_PREFIX}:${feature}`, String(value ?? ""));
+  } catch (_) { }
+}
+
+export function renderPromptNotesField(feature, inputId) {
+  return `
+    <div class="field-block prompt-notes-block">
+      <label for="${inputId}">פירוט נוסף (הסייענית שלך)</label>
+      <textarea id="${inputId}" class="prompt-notes-input" rows="3" spellcheck="true" placeholder="למשל: נתחיל מ-25 מקומות לאכול בהם בניו יורק"></textarea>
+    </div>`;
+}
+
+export function bindPromptNotesInput(feature, inputId) {
+  const input = document.getElementById(inputId);
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+  input.value = loadPromptNotes(feature);
+  input.addEventListener("input", () => savePromptNotes(feature, input.value));
+}
+
+export function getPromptNotes(inputId) {
+  const input = document.getElementById(inputId);
+  return (input?.value || "").trim();
+}
+
+export function combinePromptWithNotes(notes, prompt) {
+  const trimmed = String(notes || "").trim();
+  if (!trimmed) return prompt;
+  return `${trimmed}\n\n${prompt}`;
+}

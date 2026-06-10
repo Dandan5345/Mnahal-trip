@@ -1228,6 +1228,32 @@ svg {
     line-height: 1.58;
 }
 
+.prompt-notes-block {
+    margin-top: 16px;
+}
+
+.prompt-notes-input {
+    display: block;
+    width: 100%;
+    min-height: 88px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--field-bg, #fff);
+    color: var(--ink);
+    padding: 12px 14px;
+    direction: rtl;
+    text-align: right;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    resize: vertical;
+}
+
+.prompt-notes-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-weak);
+}
+
 .schema-strip {
     display: flex;
     flex-wrap: wrap;

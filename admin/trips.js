@@ -9,7 +9,11 @@ import {
     adminPixabaySearch,
     adminPixabayLookupById,
     adminUnsplashSearch,
-    withAppCheckHeaders
+    withAppCheckHeaders,
+    renderPromptNotesField,
+    bindPromptNotesInput,
+    getPromptNotes,
+    combinePromptWithNotes
 } from "./shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
@@ -299,6 +303,7 @@ function renderComposeView() {
                             </div>
                         </div>
                     </div>
+                    ${renderPromptNotesField("trips-builder", "tripPromptNotesInput")}
                     <textarea id="tripPromptPreview" class="prompt-preview trip-prompt-preview" readonly spellcheck="false"></textarea>
                 </article>
 
@@ -342,6 +347,7 @@ function renderComposeView() {
                         <span class="panel-icon amber"><i data-lucide="hotel"></i></span>
                         <div><h2>המלצות מלון</h2><p>prompt, JSON ותצוגה כמו במצב מתכנת.</p></div>
                     </div>
+                    ${renderPromptNotesField("trips-hotels", "tripHotelsPromptNotesInput")}
                     <div class="action-row">
                         <button class="primary-action" type="button" id="copyTripHotelsPromptButton"><i data-lucide="copy"></i><span>העתק פרומפט מלונות</span></button>
                         <button class="ghost-action" type="button" id="pasteTripHotelsJsonButton"><i data-lucide="clipboard-paste"></i><span>הדבק JSON מלונות</span></button>
@@ -363,6 +369,7 @@ function renderComposeView() {
                         <span class="panel-icon coral"><i data-lucide="ticket"></i></span>
                         <div><h2>קישורי הזמנה</h2><p>מבוסס על המקומות שמופיעים בלו״ז.</p></div>
                     </div>
+                    ${renderPromptNotesField("trips-bookings", "tripBookingsPromptNotesInput")}
                     <div class="action-row">
                         <button class="primary-action" type="button" id="copyTripBookingsPromptButton"><i data-lucide="copy"></i><span>העתק פרומפט קישורים</span></button>
                         <button class="ghost-action" type="button" id="pasteTripBookingsJsonButton"><i data-lucide="clipboard-paste"></i><span>הדבק JSON קישורים</span></button>
@@ -1226,6 +1233,9 @@ function bindActions() {
     $("loadTripPlacesButton")?.addEventListener("click", loadDestinationPlacesAndBuildPrompt);
     $("tripPlaceFiltersButton")?.addEventListener("click", toggleTripPlaceFilters);
     $("tripPlacesRadiusRange")?.addEventListener("input", updateTripPlacesRadius);
+    bindPromptNotesInput("trips-builder", "tripPromptNotesInput");
+    bindPromptNotesInput("trips-hotels", "tripHotelsPromptNotesInput");
+    bindPromptNotesInput("trips-bookings", "tripBookingsPromptNotesInput");
     $("copyTripPromptButton")?.addEventListener("click", copyTripPrompt);
     $("pasteTripJsonButton")?.addEventListener("click", pasteTripJson);
     $("parseTripJsonButton")?.addEventListener("click", parseTripJson);
@@ -1385,7 +1395,8 @@ function selectedTripSearchRadiusKm() {
 }
 
 async function copyTripPrompt() {
-    const prompt = $("tripPromptPreview")?.value || buildAiPrompt(state.destination?.label || $("tripDestinationInput")?.value || "[יעד]", state.promptPlaces);
+    const basePrompt = $("tripPromptPreview")?.value || buildAiPrompt(state.destination?.label || $("tripDestinationInput")?.value || "[יעד]", state.promptPlaces);
+    const prompt = combinePromptWithNotes(getPromptNotes("tripPromptNotesInput"), basePrompt);
     await navigator.clipboard.writeText(prompt);
     setStatus("tripStatus", "prompt הטיול הועתק.");
 }
@@ -2318,7 +2329,8 @@ async function deleteEditingTemplate() {
 }
 
 async function copyHotelRecommendationsPrompt() {
-    await navigator.clipboard.writeText(buildHotelRecommendationsPrompt());
+    const prompt = combinePromptWithNotes(getPromptNotes("tripHotelsPromptNotesInput"), buildHotelRecommendationsPrompt());
+    await navigator.clipboard.writeText(prompt);
     setStatus("tripStatus", "פרומפט המלונות הועתק.");
 }
 
@@ -2382,7 +2394,8 @@ async function copyBookingLinksPrompt() {
         setStatus("tripStatus", "צריך לפענח תבנית טיול לפני יצירת פרומפט קישורי הזמנה.", true);
         return;
     }
-    await navigator.clipboard.writeText(buildBookingLinksPrompt(candidates));
+    const prompt = combinePromptWithNotes(getPromptNotes("tripBookingsPromptNotesInput"), buildBookingLinksPrompt(candidates));
+    await navigator.clipboard.writeText(prompt);
     setStatus("tripStatus", "פרומפט קישורי ההזמנה הועתק.");
 }
 
