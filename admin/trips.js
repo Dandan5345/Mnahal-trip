@@ -696,6 +696,7 @@ function renderChatPlacesDialog() {
                 <div class="chat-places-grid" id="chatPlacesGrid"></div>
                 <div class="action-row split-actions">
                     <span class="count-pill" id="chatPlacesCount">0 נבחרו</span>
+                    <button class="ghost-action" type="button" id="chatPlacesSelectUnusedButton"><i data-lucide="list-plus"></i><span>בחר את כל המקומות שלא בלו״ז</span></button>
                     <button class="primary-action" type="button" id="chatPlacesConfirmButton"><i data-lucide="check"></i><span>צרף לשיחה</span></button>
                 </div>
             </form>
@@ -897,13 +898,13 @@ function buildDayEditSystemPrompt() {
 איך לנהוג:
 1. דבר טבעי, חם ולעניין, כמו בשיחת וואטסאפ. ענה בעברית.
 2. עזור למשתמש לחשוב ולהתלבט. אם הוא מתייעץ או שואל — פשוט תייעץ, אל תשנה כלום.
-3. קריטי: אל תבצע שום שינוי בלו״ז עד שהמשתמש מבקש במפורש לבצע שינוי (למשל "תשנה", "עדכן", "תחליף", "כן בוא נעשה את זה"). עד אז ענה בטקסט בלבד בלי שום בלוק JSON.
+3. קריטי: תמיד התייעץ קודם. גם אם הבקשה נשמעת ברורה, אל תחזיר JSON מיד — קודם הצע בטקסט את השינוי המדויק שאתה מתכוון לעשות (מה יורד, מה נכנס, באילו שעות) ושאל את המשתמש אם לבצע. רק אחרי שהמשתמש אישר במפורש (למשל "תשנה", "עדכן", "תחליף", "כן בוא נעשה את זה") החזר JSON. עד אז ענה בטקסט בלבד בלי שום בלוק JSON.
 4. כשהמשתמש מאשר שינוי קונקרטי, החזר קודם משפט אישור קצר וטבעי, ואז בשורה חדשה בלוק JSON עטוף בדיוק כך:
 \`\`\`json
 { "dayTitle": "...", "dayTips": ["..."], "items": [ { "startTime": "HH:mm", "endTime": "HH:mm", "title": "...", "summary": "...", "description": "...", "address": "...", "placeId": null } ] }
 \`\`\`
 5. בלוק ה-JSON חייב להכיל את היום המלא והמעודכן (כל הפריטים), מסודר כרונולוגית, עם שעות תקינות שלא חופפות. שמור כל מה שלא התבקש לשנות.
-6. אם המשתמש צירף attachedPlaces, קשר את הפריט הרלוונטי למקום: קבע את placeId ל-id של המקום והשתמש בשם ובכתובת האמיתיים שלו.
+6. קריטי לתמונות: בכל פעם שאתה משנה, מחליף או מוסיף פריט בלו״ז — חובה לקשר אותו למקום שמור. קבע את placeId ל-id של המקום השמור המתאים (מתוך attachedPlaces או מקום קיים בלו״ז) והשתמש בשם ובכתובת האמיתיים שלו. בלי placeId תקין התמונה והפרטים של הפריט לא יוצגו. אם אין מקום שמור מתאים לפריט החדש — אמור זאת למשתמש והצע לו לצרף מקום שמור לפני ביצוע השינוי, במקום להחזיר פריט בלי placeId.
 7. לעולם אל תחזיר בלוק JSON אם המשתמש לא אישר שינוי קונקרטי בהודעה האחרונה שלו. בזמן התלבטות — טקסט בלבד.
 8. שמות השדות חייבים להישאר בדיוק: dayTitle, dayTips, items, startTime, endTime, title, summary, description, address, placeId. placeId הוא מחרוזת או null בלבד. אל תשתמש במרכאות כפולות בתוך ערכי טקסט.
 9. אחרי שהצעת שינוי, שאל אם לעשות עוד משהו.
@@ -912,7 +913,7 @@ function buildDayEditSystemPrompt() {
 12. קריטי: החשיבה הפנימית חייבת להיות קצרה. אחרי החשיבה, חובה תמיד לכתוב תשובה גלויה בעברית למשתמש — ייעוץ, הצעות, שאלות. אסור להשאיר תשובה ריקה.
 13. כשהמשתמש מתייעץ בלי לבקש שינוי מפורש — ענה במלל גלוי מלא (הצעות, יתרונות, חלופות). JSON רק אחרי אישור מפורש לשינוי.
 14. אל תכתוב מטא-טקסט כמו "עכשיו אענה", "אכתוב תשובה", "צריך להחזיר" או תיאור של מה שאתה עומד לעשות. כתוב ישירות את התשובה למשתמש.
-15. אם הפורמט הטכני מכריח אותך להחזיר אובייקט JSON גם לתשובה טקסטואלית, החזר {"answer":"התשובה הגלויה למשתמש"}. אם יש עדכון לו״ז, אפשר לצרף answer לצד dayTitle, dayTips ו-items.`;
+15. ענה בטקסט עברי חופשי וטבעי. אל תעטוף את התשובה הרגילה ב-JSON. בלוק JSON מופיע אך ורק כשאתה מבצע שינוי מאושר בלו״ז, ורק אז, בפורמט של סעיף 4.`;
 }
 
 function buildDayEditInitPrompt(chat) {
@@ -1056,6 +1057,10 @@ async function requestChatReplyStream(userPrompt, {
             thinkingEnabled: Boolean(thinkingEnabled),
             reasoningEffort: thinkingEnabled ? reasoningEffort : "off",
             temperature: thinkingTemperature(Boolean(thinkingEnabled), reasoningEffort),
+            // Reply in natural Hebrew; only emit a fenced ```json block once the
+            // user confirms a concrete change. Avoids the empty-content failure
+            // a forced json_object caused with the reasoning model.
+            jsonObjectResponse: false,
             stream: true
         })
     });
@@ -1295,6 +1300,17 @@ function toggleChatPlaceSelection(id) {
     renderChatPlacesGrid($("chatPlacesSearch")?.value || "");
 }
 
+function selectUnusedChatPlaces() {
+    if (!state.chatPlacesSelected) state.chatPlacesSelected = new Set();
+    const unused = state.promptPlaces.filter((place) => findPlaceScheduleUsages(place).length === 0);
+    if (!unused.length) {
+        showToast("כל המקומות השמורים כבר משובצים באחד הלו״זים.");
+        return;
+    }
+    unused.forEach((place) => state.chatPlacesSelected.add(place.id));
+    renderChatPlacesGrid($("chatPlacesSearch")?.value || "");
+}
+
 function confirmChatPlaces() {
     if (!state.chat) return;
     const selected = state.promptPlaces.filter((place) => state.chatPlacesSelected?.has(place.id));
@@ -1469,6 +1485,7 @@ function bindChatUi() {
     $("chatPreviewChangesButton")?.addEventListener("click", openChatDiff);
     const debouncedChatPlacesGrid = debounce((value) => renderChatPlacesGrid(value));
     $("chatPlacesSearch")?.addEventListener("input", (event) => debouncedChatPlacesGrid(event.target.value));
+    $("chatPlacesSelectUnusedButton")?.addEventListener("click", selectUnusedChatPlaces);
     $("chatPlacesConfirmButton")?.addEventListener("click", confirmChatPlaces);
     $("chatDiffApplyButton")?.addEventListener("click", applyChatChanges);
     $("chatDiffBackButton")?.addEventListener("click", () => $("chatDiffDialog")?.close());
