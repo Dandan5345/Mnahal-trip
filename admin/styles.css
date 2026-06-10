@@ -6238,6 +6238,13 @@ a,
 .chat-mark-option b { font-size: 12px; color: var(--accent-text); }
 .chat-mark-option span { font-size: 13.5px; }
 .chat-mark-empty { padding: 10px; color: var(--muted); font-size: 13px; margin: 0; }
+.chat-mark-days { position: sticky; top: -7px; z-index: 1; display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 2px 8px; margin: -1px 0 4px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.chat-mark-day-tab { font-family: inherit; font-size: 12.5px; font-weight: 700; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-soft); color: var(--muted); cursor: pointer; transition: all 0.14s ease; white-space: nowrap; }
+.chat-mark-day-tab:hover { border-color: var(--accent-weak-2); color: var(--text); }
+.chat-mark-day-tab.is-active { border-color: var(--accent); background: var(--accent-weak); color: var(--accent-text); }
+.chat-mark-items { display: flex; flex-direction: column; }
+.chat-attach-day { background: linear-gradient(120deg, rgba(124,58,237,0.12), rgba(37,99,235,0.12)); border-color: var(--accent-weak-2); color: var(--accent-text); font-weight: 700; }
+.chat-attach-day i { color: var(--accent-text); }
 .chat-footer { padding: 8px 14px 12px; background: var(--surface); display: flex; justify-content: center; }
 
 /* ── Saved places picker ─────────────────────────────────────────── */

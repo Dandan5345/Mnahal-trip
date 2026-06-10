@@ -104,6 +104,9 @@ function createChatState(dayIndex) {
         liveReasoningExpanded: false,
         liveAnswer: "",
         pendingDay: null,
+        pendingDayIndex: null,
+        contextDays: [],
+        markMenuDayIndex: dayIndex,
         attachments: [],
         markedNotes: [],
         userScrolledChat: false
@@ -672,8 +675,10 @@ function renderChatDialog() {
                     <div class="chat-plus-menu is-hidden" id="chatPlusMenu">
                         <button class="chat-plus-item" type="button" id="chatMarkItemButton"><i data-lucide="list"></i><span>סמן קטע מהלו״ז</span></button>
                         <button class="chat-plus-item" type="button" id="chatSendPlacesButton"><i data-lucide="map-pinned"></i><span>שלח מקומות שמורים</span></button>
+                        <button class="chat-plus-item" type="button" id="chatAddDayButton"><i data-lucide="calendar-plus"></i><span>הוסף לו״ז של יום אחר</span></button>
                     </div>
                     <div class="chat-mark-menu is-hidden" id="chatMarkMenu"></div>
+                    <div class="chat-mark-menu is-hidden" id="chatDayMenu"></div>
                     <button class="chat-plus-button" type="button" id="chatPlusButton" aria-label="הוסף"><i data-lucide="plus"></i></button>
                     <textarea id="chatInput" class="chat-input" rows="1" placeholder="כתוב הודעה..." enterkeyhint="send"></textarea>
                     <button class="chat-send-button" type="button" id="chatSendButton" aria-label="שלח"><i data-lucide="send"></i></button>
@@ -918,7 +923,16 @@ function renderChatAttachStrip() {
     const attachChips = attachments.length > CHAT_ATTACH_CHIP_LIMIT
         ? `<button type="button" class="chat-attach-summary" data-open-attach-review aria-label="צפה במקומות המצורפים"><i data-lucide="map-pinned"></i><span>מצורפים ${attachments.length} מקומות</span><b>צפייה</b></button>`
         : attachments.map((place, index) => `<span class="chat-attach-chip"><i data-lucide="map-pin"></i>${escapeHtml(place.name)}<button type="button" data-remove-attach="${index}" aria-label="הסר"><i data-lucide="x"></i></button></span>`).join("");
+    // Extra days pulled into the conversation persist (unlike places/notes which
+    // clear after sending), so render them from contextDays as removable chips.
+    const dayChips = (state.chat.contextDays || [])
+        .filter((idx) => state.parsedTemplate?.days?.[idx])
+        .map((idx) => {
+            const d = state.parsedTemplate.days[idx];
+            return `<span class="chat-attach-chip chat-attach-day"><i data-lucide="calendar-days"></i>לו״ז יום ${d.dayNumber}<button type="button" data-remove-context-day="${idx}" aria-label="הסר"><i data-lucide="x"></i></button></span>`;
+        }).join("");
     const chips = [
+        dayChips,
         attachChips,
         ...state.chat.markedNotes.map((note, index) => `<span class="chat-attach-chip chat-attach-mark"><i data-lucide="list"></i>${escapeHtml(truncate(note, 28))}<button type="button" data-remove-mark="${index}" aria-label="הסר"><i data-lucide="x"></i></button></span>`)
     ].filter(Boolean).join("");
@@ -1017,7 +1031,9 @@ function dayFromAiJson(aiDay, dayNumber, fallbackDay) {
 function buildDayEditSystemPrompt() {
     return `אתה עוזר ידידותי שעוזר למנהל לערוך לו״ז של יום בודד בטיול TripTap, בשיחה טבעית בעברית.
 
-בהודעת המשתמש תקבל JSON עם ההקשר: tripName, destination, dayTitle, day (אובייקט היום הנוכחי עם items), conversationSoFar (היסטוריית השיחה — כל הודעה עשויה לכלול גם attachedPlaces משלה), attachedPlaces (מקומות שמורים שהמשתמש צירף בהודעה הנוכחית, אם יש), markedExcerpts (קטעים מהלו״ז שהמשתמש סימן במפורש), ו-userRequest (ההודעה החדשה של המשתמש).
+בהודעת המשתמש תקבל JSON עם ההקשר: tripName, destination, dayTitle, day (אובייקט היום הנוכחי עם items), days (אם המשתמש הוסיף ימים נוספים לשיחה — מערך של ימים, כל אחד עם dayNumber, dayTitle ו-items), conversationSoFar (היסטוריית השיחה — כל הודעה עשויה לכלול גם attachedPlaces משלה), attachedPlaces (מקומות שמורים שהמשתמש צירף בהודעה הנוכחית, אם יש), markedExcerpts (קטעים מהלו״ז שהמשתמש סימן במפורש, עם תיוג [יום N]), ו-userRequest (ההודעה החדשה של המשתמש).
+
+עריכת כמה ימים: אם השדה days קיים, המשתמש יכול לבקש לערוך כל אחד מהימים שברשימה, לא רק את היום שנפתח. הבן לאיזה יום הבקשה מתייחסת. בכל הצעת שינוי חובה לכלול בבלוק ה-JSON את השדה "dayNumber" של היום שמשתנה. שנה יום אחד בכל הצעה; אם המשתמש מבקש לשנות כמה ימים — טפל בהם אחד-אחד ושאל לפני כל אחד.
 
 זיכרון מקומות: כל המקומות שצורפו אי-פעם בשיחה (גם בהודעות קודמות, מתוך conversationSoFar[].attachedPlaces) זמינים לך לכל אורך השיחה. גם אם המשתמש שלח רשימה של עשרות מקומות בהודעה קודמת — הם עדיין בהקשר, זכור אותם והתייחס אליהם בהודעות הבאות. אל תאמר שאינך זוכר מקומות שכבר צורפו.
 
@@ -1027,8 +1043,9 @@ function buildDayEditSystemPrompt() {
 3. קריטי: תמיד התייעץ קודם. גם אם הבקשה נשמעת ברורה, אל תחזיר JSON מיד — קודם הצע בטקסט את השינוי המדויק שאתה מתכוון לעשות (מה יורד, מה נכנס, באילו שעות) ושאל את המשתמש אם לבצע. רק אחרי שהמשתמש אישר במפורש (למשל "תשנה", "עדכן", "תחליף", "כן בוא נעשה את זה") החזר JSON. עד אז ענה בטקסט בלבד בלי שום בלוק JSON.
 4. כשהמשתמש מאשר שינוי קונקרטי, החזר קודם משפט אישור קצר וטבעי, ואז בשורה חדשה בלוק JSON עטוף בדיוק כך:
 \`\`\`json
-{ "dayTitle": "...", "dayTips": ["..."], "items": [ { "startTime": "HH:mm", "endTime": "HH:mm", "title": "...", "summary": "...", "description": "...", "address": "...", "placeId": null } ] }
+{ "dayNumber": 1, "dayTitle": "...", "dayTips": ["..."], "items": [ { "startTime": "HH:mm", "endTime": "HH:mm", "title": "...", "summary": "...", "description": "...", "address": "...", "placeId": null } ] }
 \`\`\`
+שדה dayNumber מציין את היום שאתה משנה (אם יש כמה ימים בשיחה). אם יש רק יום אחד — קבע אותו ל-dayNumber של היום הנוכחי.
 5. בלוק ה-JSON חייב להכיל את היום המלא והמעודכן (כל הפריטים), מסודר כרונולוגית, עם שעות תקינות שלא חופפות. שמור כל מה שלא התבקש לשנות.
 6. קריטי לתמונות: בכל פעם שאתה משנה, מחליף או מוסיף פריט בלו״ז — חובה לקשר אותו למקום שמור. קבע את placeId ל-id של המקום השמור המתאים (מתוך attachedPlaces או מקום קיים בלו״ז) והשתמש בשם ובכתובת האמיתיים שלו. בלי placeId תקין התמונה והפרטים של הפריט לא יוצגו. אם אין מקום שמור מתאים לפריט החדש — אמור זאת למשתמש והצע לו לצרף מקום שמור לפני ביצוע השינוי, במקום להחזיר פריט בלי placeId.
 7. לעולם אל תחזיר בלוק JSON אם המשתמש לא אישר שינוי קונקרטי בהודעה האחרונה שלו. בזמן התלבטות — טקסט בלבד.
@@ -1064,9 +1081,17 @@ function placeToAiContext(place) {
     };
 }
 
+// Days currently in the conversation's scope: the day the chat opened on plus any
+// extra days the user pulled in via "הוסף לו״ז של יום אחר". Ordered and unique.
+function chatScopeDayIndexes(chat) {
+    const indexes = new Set([chat.dayIndex, ...(chat.contextDays || [])]);
+    return [...indexes].filter((idx) => state.parsedTemplate?.days?.[idx]).sort((a, b) => a - b);
+}
+
 function buildDayEditUserPrompt(chat, newUserText, attachments, markedNotes) {
     const day = state.parsedTemplate.days[chat.dayIndex];
-    return JSON.stringify({
+    const scope = chatScopeDayIndexes(chat);
+    const payload = {
         tripName: state.parsedTemplate.tripTitle,
         destination: state.destination?.label || text($("tripDestinationInput")?.value) || "",
         dayTitle: day.dayTitle,
@@ -1087,7 +1112,17 @@ function buildDayEditUserPrompt(chat, newUserText, attachments, markedNotes) {
         attachedPlaces: (attachments || []).map(placeToAiContext),
         markedExcerpts: markedNotes || [],
         userRequest: newUserText
-    });
+    };
+    // When the user brought extra days into the chat, send every in-scope day so
+    // the model can edit any of them. Each carries its dayNumber so a proposal can
+    // target the right day.
+    if (scope.length > 1) {
+        payload.days = scope.map((idx) => {
+            const d = state.parsedTemplate.days[idx];
+            return { dayNumber: d.dayNumber, ...dayToAiSchema(d) };
+        });
+    }
+    return JSON.stringify(payload);
 }
 
 function extractAssistantJsonCandidate(value) {
@@ -1255,9 +1290,22 @@ function applyChatAssistantReply(payload, { isSessionStart = false } = {}) {
     if (reasoning && !isSessionStart) message.reasoning = reasoning;
     state.chat.messages.push(message);
     if (reply.proposedDay) {
-        const day = state.parsedTemplate.days[state.chat.dayIndex];
+        const targetIndex = resolveProposalDayIndex(reply.proposedDay);
+        const day = state.parsedTemplate.days[targetIndex];
         state.chat.pendingDay = dayFromAiJson(reply.proposedDay, day.dayNumber, day);
+        state.chat.pendingDayIndex = targetIndex;
     }
+}
+
+// A proposal may target any in-scope day; honor its dayNumber, else fall back to
+// the day the chat opened on.
+function resolveProposalDayIndex(proposed) {
+    const num = Number(proposed?.dayNumber);
+    if (Number.isFinite(num)) {
+        const idx = state.parsedTemplate.days.findIndex((d) => d.dayNumber === num);
+        if (idx !== -1 && chatScopeDayIndexes(state.chat).includes(idx)) return idx;
+    }
+    return state.chat.dayIndex;
 }
 
 async function sendInitialChatPrompt() {
@@ -1386,12 +1434,14 @@ function autoSizeChatInput() {
 function closeChatPlusMenus() {
     $("chatPlusMenu")?.classList.add("is-hidden");
     $("chatMarkMenu")?.classList.add("is-hidden");
+    $("chatDayMenu")?.classList.add("is-hidden");
 }
 
 function toggleChatPlusMenu() {
     const menu = $("chatPlusMenu");
     if (!menu) return;
     $("chatMarkMenu")?.classList.add("is-hidden");
+    $("chatDayMenu")?.classList.add("is-hidden");
     menu.classList.toggle("is-hidden");
     refreshIcons();
 }
@@ -1400,28 +1450,85 @@ function openChatMarkMenu() {
     const menu = $("chatMarkMenu");
     if (!menu || !state.chat) return;
     $("chatPlusMenu")?.classList.add("is-hidden");
-    const day = state.parsedTemplate.days[state.chat.dayIndex];
-    menu.innerHTML = day.items.map((item, index) => `
+    $("chatDayMenu")?.classList.add("is-hidden");
+    if (state.chat.markMenuDayIndex == null || !state.parsedTemplate.days[state.chat.markMenuDayIndex]) {
+        state.chat.markMenuDayIndex = state.chat.dayIndex;
+    }
+    renderChatMarkMenu();
+    menu.classList.remove("is-hidden");
+    refreshIcons();
+}
+
+function renderChatMarkMenu() {
+    const menu = $("chatMarkMenu");
+    if (!menu || !state.chat) return;
+    const days = state.parsedTemplate.days;
+    const activeIdx = state.chat.markMenuDayIndex;
+    // Day switcher so items can be marked from any day, not just the open one.
+    const tabs = days.length > 1
+        ? `<div class="chat-mark-days">${days.map((d, idx) => `<button type="button" class="chat-mark-day-tab${idx === activeIdx ? " is-active" : ""}" data-mark-day="${idx}">יום ${d.dayNumber}</button>`).join("")}</div>`
+        : "";
+    const day = days[activeIdx];
+    const items = (day?.items || []).map((item, index) => `
         <button class="chat-mark-option" type="button" data-mark-item="${index}">
             <b>${escapeHtml([item.startTime, item.endTime].filter(Boolean).join("–") || "פריט")}</b>
             <span>${escapeHtml(item.title)}</span>
         </button>`).join("") || `<p class="chat-mark-empty">אין פריטים ביום הזה.</p>`;
-    menu.classList.remove("is-hidden");
+    menu.innerHTML = `${tabs}<div class="chat-mark-items">${items}</div>`;
+    menu.querySelectorAll("[data-mark-day]").forEach((button) => button.addEventListener("click", () => {
+        state.chat.markMenuDayIndex = Number(button.dataset.markDay);
+        renderChatMarkMenu();
+        refreshIcons();
+    }));
     menu.querySelectorAll("[data-mark-item]").forEach((button) => button.addEventListener("click", () => {
         markItineraryItem(Number(button.dataset.markItem));
     }));
-    refreshIcons();
 }
 
 function markItineraryItem(index) {
     if (!state.chat) return;
-    const item = state.parsedTemplate.days[state.chat.dayIndex].items[index];
+    const dayIdx = state.parsedTemplate.days[state.chat.markMenuDayIndex] ? state.chat.markMenuDayIndex : state.chat.dayIndex;
+    const day = state.parsedTemplate.days[dayIdx];
+    const item = day?.items[index];
     if (!item) return;
-    const excerpt = `${[item.startTime, item.endTime].filter(Boolean).join("–")} ${item.title}${item.address ? ` (${item.address})` : ""}${item.summary ? ` — ${item.summary}` : ""}`.trim();
+    // Tag the excerpt with its day so the model knows which day it came from.
+    const excerpt = `[יום ${day.dayNumber}] ${[item.startTime, item.endTime].filter(Boolean).join("–")} ${item.title}${item.address ? ` (${item.address})` : ""}${item.summary ? ` — ${item.summary}` : ""}`.trim();
     state.chat.markedNotes.push(excerpt);
     closeChatPlusMenus();
     renderChatAttachStrip();
     refreshIcons();
+    $("chatInput")?.focus();
+}
+
+function openChatAddDayMenu() {
+    const menu = $("chatDayMenu");
+    if (!menu || !state.chat) return;
+    $("chatPlusMenu")?.classList.add("is-hidden");
+    $("chatMarkMenu")?.classList.add("is-hidden");
+    const inScope = new Set(chatScopeDayIndexes(state.chat));
+    const available = state.parsedTemplate.days
+        .map((d, idx) => ({ d, idx }))
+        .filter(({ idx }) => !inScope.has(idx));
+    menu.innerHTML = available.length
+        ? available.map(({ d, idx }) => `
+            <button class="chat-mark-option" type="button" data-add-day="${idx}">
+                <b>יום ${d.dayNumber}</b>
+                <span>${escapeHtml(d.dayTitle || "")}</span>
+            </button>`).join("")
+        : `<p class="chat-mark-empty">כל ימי הטיול כבר בשיחה.</p>`;
+    menu.classList.remove("is-hidden");
+    menu.querySelectorAll("[data-add-day]").forEach((button) => button.addEventListener("click", () => addContextDay(Number(button.dataset.addDay))));
+    refreshIcons();
+}
+
+function addContextDay(idx) {
+    if (!state.chat || !state.parsedTemplate?.days?.[idx]) return;
+    if (idx !== state.chat.dayIndex && !state.chat.contextDays.includes(idx)) state.chat.contextDays.push(idx);
+    closeChatPlusMenus();
+    renderChatAttachStrip();
+    refreshIcons();
+    const d = state.parsedTemplate.days[idx];
+    showToast(`לו״ז יום ${d.dayNumber} נוסף לשיחה — אפשר לבקש לערוך גם אותו.`);
     $("chatInput")?.focus();
 }
 
@@ -1578,7 +1685,7 @@ function diffDays(original, pending) {
 
 function openChatDiff() {
     if (!state.chat?.pendingDay) return;
-    const original = state.parsedTemplate.days[state.chat.dayIndex];
+    const original = state.parsedTemplate.days[state.chat.pendingDayIndex ?? state.chat.dayIndex];
     const pending = state.chat.pendingDay;
     const rows = diffDays(original, pending);
     const badge = { added: "נוסף", changed: "שונה", removed: "הוסר", same: "" };
@@ -1605,16 +1712,17 @@ function openChatDiff() {
 
 function applyChatChanges() {
     if (!state.chat?.pendingDay) return;
-    const dayIndex = state.chat.dayIndex;
+    const dayIndex = state.chat.pendingDayIndex ?? state.chat.dayIndex;
     const dayNumber = state.parsedTemplate.days[dayIndex].dayNumber;
     state.parsedTemplate.days[dayIndex] = { ...state.chat.pendingDay, dayNumber };
     state.chat.pendingDay = null;
+    state.chat.pendingDayIndex = null;
     markTemplateDirty();
-    state.chat.messages.push({ role: "assistant", text: "מעולה, החלתי את השינויים על הלו״ז ✓. רוצה לערוך עוד משהו?" });
+    state.chat.messages.push({ role: "assistant", text: `מעולה, החלתי את השינויים על לו״ז יום ${dayNumber} ✓. רוצה לערוך עוד משהו?` });
     $("chatDiffDialog")?.close();
     renderTripPreview();
     renderChat();
-    showToast("השינויים הוחלו על הלו״ז.");
+    showToast(`השינויים הוחלו על לו״ז יום ${dayNumber}.`);
 }
 
 function closeChat() {
@@ -1711,6 +1819,7 @@ function bindChatUi() {
     $("chatPlusButton")?.addEventListener("click", toggleChatPlusMenu);
     $("chatMarkItemButton")?.addEventListener("click", openChatMarkMenu);
     $("chatSendPlacesButton")?.addEventListener("click", openChatPlacesDialog);
+    $("chatAddDayButton")?.addEventListener("click", openChatAddDayMenu);
     $("chatModelSelect")?.addEventListener("change", (event) => {
         if (!state.chat) return;
         state.chat.model = event.target.value;
@@ -1734,7 +1843,9 @@ function bindChatUi() {
         const openReview = event.target.closest("[data-open-attach-review]");
         const removeAttach = event.target.closest("[data-remove-attach]");
         const removeMark = event.target.closest("[data-remove-mark]");
+        const removeContextDay = event.target.closest("[data-remove-context-day]");
         if (openReview) { openChatAttachReview(); return; }
+        if (removeContextDay && state.chat) { state.chat.contextDays = state.chat.contextDays.filter((idx) => idx !== Number(removeContextDay.dataset.removeContextDay)); renderChatAttachStrip(); refreshIcons(); }
         if (removeAttach && state.chat) { state.chat.attachments.splice(Number(removeAttach.dataset.removeAttach), 1); renderChatAttachStrip(); refreshIcons(); }
         if (removeMark && state.chat) { state.chat.markedNotes.splice(Number(removeMark.dataset.removeMark), 1); renderChatAttachStrip(); refreshIcons(); }
     });
