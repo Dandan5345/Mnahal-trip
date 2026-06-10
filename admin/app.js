@@ -1223,6 +1223,48 @@ function renderPage() {
         </form>
       </dialog>
 
+      <dialog class="gh-chat-dialog" id="geminiHoursChatDialog">
+        <div class="gh-chat-shell">
+          <header class="gh-chat-header">
+            <div class="gh-chat-peer">
+              <span class="gh-chat-avatar"><i data-lucide="sparkles" aria-hidden="true"></i></span>
+              <div class="gh-chat-peer-info">
+                <b id="geminiHoursChatTitle">Gemini</b>
+                <small id="geminiHoursChatStatus">מחובר · שעות פתיחה</small>
+              </div>
+            </div>
+            <div class="gh-chat-source-toggle" role="group" aria-label="מקור החיפוש">
+              <button class="gh-source-option is-active" type="button" data-search-mode="maps">
+                <i data-lucide="map-pinned" aria-hidden="true"></i><span>גוגל מפס</span>
+              </button>
+              <button class="gh-source-option" type="button" data-search-mode="search">
+                <i data-lucide="globe" aria-hidden="true"></i><span>חיפוש בגוגל</span>
+              </button>
+            </div>
+            <button class="gh-chat-close" type="button" id="geminiHoursChatClose" aria-label="סגירת הצ'אט">
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </header>
+          <div class="gh-chat-messages" id="geminiHoursChatMessages"></div>
+          <footer class="gh-chat-footer">
+            <div class="gh-chat-quick">
+              <button class="gh-quick-chip" type="button" id="geminiHoursRetryButton">
+                <i data-lucide="rotate-ccw" aria-hidden="true"></i><span>נסה שוב</span>
+              </button>
+              <button class="gh-quick-chip gh-apply-chip" type="button" id="geminiHoursApplyButton" disabled>
+                <i data-lucide="check-check" aria-hidden="true"></i><span>עדכן שעות בכרטיסייה</span>
+              </button>
+            </div>
+            <div class="gh-chat-input-row">
+              <textarea id="geminiHoursChatInput" rows="1" placeholder="כתוב לג'מיני או הדבק קישור לבדיקה..."></textarea>
+              <button class="gh-chat-send" type="button" id="geminiHoursSendButton" aria-label="שליחת הודעה">
+                <i data-lucide="send" aria-hidden="true"></i>
+              </button>
+            </div>
+          </footer>
+        </div>
+      </dialog>
+
       <dialog class="image-dialog progress-dialog" id="importProgressDialog">
         <form method="dialog" class="image-dialog-shell progress-dialog-shell">
           <div class="dialog-header">
@@ -3302,6 +3344,8 @@ ${address ? `כתובת הייחוס של היעד: ${address}
  1. **דיוק מוחלט:** חובה עליך להשתמש בחיפוש רשת כדי לוודא שעות פתיחה, כתובות ופרטים עדכניים. לעולם אל תמציא מידע. אם נתון אינו ניתן לאימות, השאר אותו כמחרוזת ריקה "".
  2. **כתובות לניווט:** הכתובת (address) חייבת להיות מדויקת ובשפת המקור כדי להבטיח זיהוי של 100% במערכות Apple Maps ו-Google Maps. בשדה address כתוב רק את הכתובת המלאה עצמה, בלי שם המקום, בלי שם המותג, בלי הסבר ובלי סוגריים. אל תתרגם כתובת לעברית אם הכתובת המקומית כתובה באנגלית, גרמנית, צ'כית, איטלקית, צרפתית או כל שפת מקור אחרת.
  3. **שעות פתיחה מפורטות:** ציין שעות פתיחה לכל שבעת ימי השבוע. כל הימים נשמרים בתוך מחרוזת JSON אחת ובשורה לוגית אחת, כאשר המעבר בין יום ליום מיוצג ברצף שני התווים \\n (לוכסן הפוך ואחריו האות n) — לעולם לא בלחיצת Enter אמיתית בתוך המחרוזת. הפורמט לכל יום: "ראשון- 08:00-20:00" בשעון 24 שעות. יום סגור: "שבת- סגור". דוגמה לערך תקין ושלם: "ראשון- 08:00-20:00\\nשני- 08:00-20:00\\nשלישי- 08:00-20:00\\nרביעי- 08:00-20:00\\nחמישי- 08:00-20:00\\nשישי- 08:00-14:00\\nשבת- סגור".
+ 3א. **מקום שפתוח 24/7 (תמיד פתוח):** חובה להחזיר את כל שבעת הימים במלואם ובסדר הנכון, כל יום "00:00-24:00". הערך המלא חייב להיות בדיוק: "ראשון- 00:00-24:00\\nשני- 00:00-24:00\\nשלישי- 00:00-24:00\\nרביעי- 00:00-24:00\\nחמישי- 00:00-24:00\\nשישי- 00:00-24:00\\nשבת- 00:00-24:00". לעולם אל תציין יום אחד בלבד כפתוח 24 שעות.
+ 3ב. **מקומות ציבוריים בלי שעות סגירה:** שדרה, רחוב, כיכר, שכונה, טיילת, גשר וכדומה (למשל השדרה החמישית בניו יורק — היא לא חנות ואין לה שעות סגירה) נחשבים פתוחים 24/7 — החזר עבורם את כל שבעת הימים "00:00-24:00" כאמור בסעיף 3א, ובנוסף חובה לכלול בתוך התיאור הארוך (description) משפט הסבר למשתמש, למשל: "השדרה עצמה פתוחה בכל שעות היממה, אך שעות הפתיחה של החנויות והעסקים לאורכה משתנות מחנות לחנות".
  4. **מיון וקיבוץ:** חובה למיין את המקומות במערך ה-JSON לפי קטגוריות. קבץ יחד את כל המוזיאונים, לאחר מכן את כל המסעדות, וכו'.
 **סגנון כתיבה - שיווקי וחווייתי (Tone & Style):**
 את התיאורים (description ו-short_description) יש לכתוב ב**עברית בלבד**. התיאור הארוך צריך להיות שיווקי, מלהיב ומושך - כתוב אותו כאילו אתה מדריך הטיולים הטוב בעולם הממליץ לחבר קרוב על חוויה בלתי נשכחת.
@@ -3490,13 +3534,7 @@ async function handleDraftAction(id, action, button = null) {
     return;
   }
   if (action === "geminiHours") {
-    setDraftActionButtonLoading(button, true);
-    try {
-      await enrichDraftHoursFromGemini(draft);
-    } finally {
-      setDraftActionButtonLoading(button, false);
-    }
-    renderDrafts();
+    openGeminiHoursChat(draft);
     return;
   }
   if (action === "save") {
@@ -3660,27 +3698,283 @@ async function enrichDraftFromGooglePlaces(draft) {
   }
 }
 
-async function enrichDraftHoursFromGemini(draft) {
+// ── צ'אט שעות פתיחה עם Gemini (מודל בסגנון וואטסאפ) ─────────────────
+function openGeminiHoursChat(draft) {
   if (!state.user) {
     setStatus("importStatus", "צריך להתחבר לפני משיכת שעות.", true);
     return;
   }
-  try {
-    await ensureFreshAdminAuthToken();
-    const data = await postPlaceLookup(GEMINI_PLACE_HOURS_ENDPOINT, draft);
-    const changes = {};
-    if (data.opening_hours) changes.hours = data.opening_hours;
-    openEnrichConfirm({
-      draftId: draft.id,
-      source: "Gemini",
-      changes,
-      thinking: text(data.thinking),
-      sources: Array.isArray(data.sources) ? data.sources : [],
-      raw: text(data.raw)
+  state.hoursChat = {
+    draftId: draft.id,
+    history: [],
+    searchMode: state.hoursChat?.searchMode || "maps",
+    streaming: false,
+    abort: null,
+    latest: null
+  };
+  bindGeminiHoursChat();
+  $("geminiHoursChatTitle").textContent = `Gemini · ${draft.name || "מקום"}`;
+  $("geminiHoursChatStatus").textContent = "מחובר · שעות פתיחה";
+  $("geminiHoursChatMessages").innerHTML = "";
+  $("geminiHoursChatInput").value = "";
+  $("geminiHoursApplyButton").disabled = true;
+  syncGeminiHoursSourceToggle();
+  appendGeminiHoursBubble("info", `בודק שעות פתיחה עבור ${draft.name || "המקום"}. אפשר לבקש לנסות שוב או להדביק קישור לאתר שבו כדאי לבדוק.`);
+  $("geminiHoursChatDialog")?.showModal();
+  refreshIcons();
+  sendGeminiHoursTurn();
+}
+
+function bindGeminiHoursChat() {
+  const dialog = $("geminiHoursChatDialog");
+  if (!dialog || dialog.dataset.bound === "true") return;
+  dialog.dataset.bound = "true";
+
+  $("geminiHoursChatClose")?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => {
+    state.hoursChat?.abort?.abort();
+  });
+
+  dialog.querySelectorAll("[data-search-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!state.hoursChat || state.hoursChat.streaming) return;
+      state.hoursChat.searchMode = button.dataset.searchMode === "search" ? "search" : "maps";
+      syncGeminiHoursSourceToggle();
+      appendGeminiHoursBubble("info", state.hoursChat.searchMode === "search"
+        ? "המקור הוחלף לחיפוש בגוגל. ההודעה הבאה תיבדק מול תוצאות חיפוש."
+        : "המקור הוחלף לגוגל מפס. ההודעה הבאה תיבדק מול נתוני המפות.");
     });
-  } catch (error) {
-    openEnrichConfirm({ draftId: draft.id, source: "Gemini", error: error?.message || "שגיאה לא ידועה" });
+  });
+
+  const input = $("geminiHoursChatInput");
+  const sendFromInput = () => {
+    const value = (input.value || "").trim();
+    if (!value) return;
+    input.value = "";
+    input.style.height = "";
+    sendGeminiHoursTurn(value);
+  };
+  $("geminiHoursSendButton")?.addEventListener("click", sendFromInput);
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendFromInput();
+    }
+  });
+  input?.addEventListener("input", () => {
+    input.style.height = "";
+    input.style.height = `${Math.min(input.scrollHeight, 110)}px`;
+  });
+
+  $("geminiHoursRetryButton")?.addEventListener("click", () => {
+    sendGeminiHoursTurn("התשובה לא מדויקת. נסה שוב ובדוק לעומק את שעות הפתיחה המעודכנות.");
+  });
+  $("geminiHoursApplyButton")?.addEventListener("click", applyGeminiHoursResult);
+}
+
+function syncGeminiHoursSourceToggle() {
+  const mode = state.hoursChat?.searchMode || "maps";
+  $("geminiHoursChatDialog")?.querySelectorAll("[data-search-mode]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.searchMode === mode);
+  });
+}
+
+function appendGeminiHoursBubble(kind, content, { html = false } = {}) {
+  const container = $("geminiHoursChatMessages");
+  if (!container) return null;
+  const time = new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+  const wrapper = document.createElement("div");
+  wrapper.className = `gh-msg gh-msg-${kind}`;
+  wrapper.innerHTML = `<div class="gh-bubble"><div class="gh-bubble-text"></div><span class="gh-time">${time}</span></div>`;
+  const textEl = wrapper.querySelector(".gh-bubble-text");
+  if (html) textEl.innerHTML = content;
+  else textEl.textContent = content;
+  container.appendChild(wrapper);
+  container.scrollTop = container.scrollHeight;
+  return wrapper;
+}
+
+function geminiHoursTypingHtml() {
+  return `<span class="gh-typing"><i></i><i></i><i></i></span>`;
+}
+
+async function sendGeminiHoursTurn(userText = "") {
+  const chat = state.hoursChat;
+  if (!chat || chat.streaming) return;
+  const draft = state.drafts.find((item) => item.id === chat.draftId);
+  if (!draft) return;
+
+  if (userText) {
+    chat.history.push({ role: "user", text: userText });
+    appendGeminiHoursBubble("user", userText);
   }
+
+  chat.streaming = true;
+  chat.abort = new AbortController();
+  $("geminiHoursChatStatus").textContent = "מקליד...";
+  $("geminiHoursSendButton")?.setAttribute("disabled", "true");
+  $("geminiHoursRetryButton")?.setAttribute("disabled", "true");
+
+  const thoughtBubble = appendGeminiHoursBubble("thought", "", { html: true });
+  const thoughtText = thoughtBubble?.querySelector(".gh-bubble-text");
+  if (thoughtText) thoughtText.innerHTML = `<span class="gh-thought-label"><i data-lucide="brain-circuit"></i> חושב...</span><span class="gh-thought-body"></span>`;
+  refreshIcons();
+  const thoughtBody = thoughtBubble?.querySelector(".gh-thought-body");
+  let answerBubble = null;
+  let answerText = null;
+  let thoughtContent = "";
+  const container = $("geminiHoursChatMessages");
+
+  try {
+    const idToken = await state.user.getIdToken();
+    const response = await fetch(GEMINI_PLACE_HOURS_ENDPOINT, {
+      method: "POST",
+      headers: await withAppCheckHeaders({
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
+      }),
+      body: JSON.stringify({
+        name: draft.name,
+        address: draft.location,
+        searchMode: chat.searchMode,
+        stream: true,
+        messages: chat.history
+      }),
+      signal: chat.abort.signal
+    });
+    if (!response.ok || !response.body) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalEvent = null;
+
+    const consume = (rawEvent) => {
+      const data = rawEvent
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("");
+      if (!data || data === "[DONE]") return;
+      let event;
+      try { event = JSON.parse(data); } catch (_) { return; }
+      if (event.error) throw new Error(event.error);
+      if (event.thoughtDelta && thoughtBody) {
+        thoughtContent += event.thoughtDelta;
+        thoughtBody.textContent = thoughtContent;
+        container.scrollTop = container.scrollHeight;
+      }
+      if (event.contentDelta) {
+        if (!answerBubble) {
+          answerBubble = appendGeminiHoursBubble("model", "", { html: true });
+          answerText = answerBubble?.querySelector(".gh-bubble-text");
+        }
+        if (answerText) {
+          answerText.textContent = (answerText.textContent || "") + event.contentDelta;
+          container.scrollTop = container.scrollHeight;
+        }
+      }
+      if (event.done) finalEvent = event;
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const rawEvent of events) consume(rawEvent);
+    }
+    if (buffer.trim()) consume(buffer);
+
+    if (!thoughtContent) thoughtBubble?.remove();
+    else thoughtBubble?.classList.add("is-done");
+
+    finishGeminiHoursTurn(chat, finalEvent, answerBubble);
+  } catch (error) {
+    thoughtBubble?.remove();
+    if (error?.name !== "AbortError") {
+      appendGeminiHoursBubble("error", `המשיכה נכשלה: ${error?.message || "שגיאה לא ידועה"}. אפשר לנסות שוב.`);
+    }
+  } finally {
+    chat.streaming = false;
+    chat.abort = null;
+    $("geminiHoursChatStatus").textContent = "מחובר · שעות פתיחה";
+    $("geminiHoursSendButton")?.removeAttribute("disabled");
+    $("geminiHoursRetryButton")?.removeAttribute("disabled");
+  }
+}
+
+function finishGeminiHoursTurn(chat, finalEvent, answerBubble) {
+  if (!finalEvent) {
+    if (!answerBubble) appendGeminiHoursBubble("error", "לא התקבלה תשובה מ-Gemini. אפשר לנסות שוב.");
+    return;
+  }
+  const hours = text(finalEvent.opening_hours);
+  const note = text(finalEvent.description_note);
+  const raw = text(finalEvent.raw);
+  chat.history.push({ role: "model", text: raw || hours });
+  chat.latest = { opening_hours: hours, description_note: note };
+
+  // מחליפים את ה-JSON הגולמי בבועה מעוצבת של שעות.
+  const target = answerBubble || appendGeminiHoursBubble("model", "", { html: true });
+  const textEl = target?.querySelector(".gh-bubble-text");
+  if (textEl) textEl.innerHTML = formatGeminiHoursAnswerHtml(hours, note);
+
+  const sources = Array.isArray(finalEvent.sources) ? finalEvent.sources.filter((item) => item?.uri) : [];
+  if (sources.length) {
+    const chips = sources.slice(0, 6).map((item) =>
+      `<a class="gh-source-chip" href="${escapeAttr(item.uri)}" target="_blank" rel="noopener noreferrer"><i data-lucide="link"></i><span>${escapeHtml(item.title || shortUrlLabel(item.uri))}</span></a>`
+    ).join("");
+    appendGeminiHoursBubble("sources", `<div class="gh-sources">${chips}</div>`, { html: true });
+  }
+
+  const applyButton = $("geminiHoursApplyButton");
+  if (applyButton) applyButton.disabled = !hours;
+  const container = $("geminiHoursChatMessages");
+  if (container) container.scrollTop = container.scrollHeight;
+  refreshIcons();
+}
+
+function formatGeminiHoursAnswerHtml(hours, note) {
+  if (!hours) return escapeHtml("לא הצלחתי למצוא שעות. אפשר לנסות שוב או לשלוח קישור לבדיקה.");
+  const lines = hours.split(/\n|\\n/).map((line) => line.trim()).filter(Boolean);
+  const dayLine = /^(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)\s*-/;
+  const isDayList = lines.length > 1 && lines.every((line) => dayLine.test(line));
+  const hoursHtml = isDayList
+    ? `<div class="gh-hours-card">${lines.map((line) => {
+        const [day, ...rest] = line.split("-");
+        return `<div class="gh-hours-row"><b>${escapeHtml(day.trim())}</b><span>${escapeHtml(rest.join("-").trim())}</span></div>`;
+      }).join("")}</div>`
+    : `<p class="gh-hours-plain">${escapeHtml(hours)}</p>`;
+  const noteHtml = note ? `<p class="gh-hours-note"><i data-lucide="info"></i>${escapeHtml(note)}</p>` : "";
+  return `${hoursHtml}${noteHtml}`;
+}
+
+function shortUrlLabel(raw) {
+  try {
+    return new URL(raw).host.replace(/^www\./, "");
+  } catch (_) {
+    return text(raw).slice(0, 40);
+  }
+}
+
+function applyGeminiHoursResult() {
+  const chat = state.hoursChat;
+  if (!chat?.latest?.opening_hours) return;
+  const draft = state.drafts.find((item) => item.id === chat.draftId);
+  if (!draft) return;
+  draft.hours = chat.latest.opening_hours;
+  const note = text(chat.latest.description_note);
+  if (note && !text(draft.description).includes(note)) {
+    draft.description = [text(draft.description), note].filter(Boolean).join("\n\n");
+  }
+  $("geminiHoursChatDialog")?.close();
+  renderDrafts();
+  showToast("שעות הפתיחה עודכנו בכרטיסייה", "success");
 }
 
 function openEnrichConfirm({ draftId, source, changes, thinking, sources, raw, error }) {

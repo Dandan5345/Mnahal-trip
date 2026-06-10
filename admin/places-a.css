@@ -1628,3 +1628,605 @@ html[data-theme="dark"] .pa-root {
   border-color: var(--pa-danger-border);
   color: var(--pa-danger);
 }
+
+/* ============================================================
+   צ'אט שעות פתיחה עם Gemini — עיצוב בהשראת וואטסאפ
+   ============================================================ */
+.pa-root .gh-chat-dialog {
+  border: none;
+  padding: 0;
+  background: transparent;
+  width: min(460px, calc(100vw - 24px));
+  height: min(80vh, 720px);
+  border-radius: 22px;
+  overflow: visible;
+}
+
+.pa-root .gh-chat-dialog::backdrop {
+  background: rgba(8, 14, 28, 0.62);
+  backdrop-filter: blur(3px);
+}
+
+.pa-root .gh-chat-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #efe7dd;
+  box-shadow: 0 30px 80px rgba(8, 14, 28, 0.4);
+}
+
+html[data-theme="dark"] .pa-root .gh-chat-shell {
+  background: #0b141a;
+}
+
+/* --- כותרת ירוקה כמו וואטסאפ --- */
+.pa-root .gh-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #075e54, #128c7e);
+  color: #fff;
+  flex-wrap: wrap;
+}
+
+.pa-root .gh-chat-peer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pa-root .gh-chat-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+  flex: 0 0 auto;
+}
+
+.pa-root .gh-chat-avatar svg {
+  width: 20px;
+  height: 20px;
+  color: #fff;
+}
+
+.pa-root .gh-chat-peer-info {
+  min-width: 0;
+}
+
+.pa-root .gh-chat-peer-info b {
+  display: block;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.pa-root .gh-chat-peer-info small {
+  display: block;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.pa-root .gh-chat-close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.pa-root .gh-chat-close:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* --- מתג מקור: גוגל מפס / חיפוש בגוגל --- */
+.pa-root .gh-chat-source-toggle {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+  flex: 0 0 auto;
+  order: 3;
+  width: 100%;
+  justify-content: center;
+}
+
+.pa-root .gh-source-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pa-root .gh-source-option svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pa-root .gh-source-option.is-active {
+  background: #fff;
+  color: #075e54;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* --- אזור ההודעות עם טפט נקודות עדין --- */
+.pa-root .gh-chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background-image: radial-gradient(rgba(7, 94, 84, 0.07) 1.3px, transparent 1.3px);
+  background-size: 20px 20px;
+  overscroll-behavior: contain;
+}
+
+html[data-theme="dark"] .pa-root .gh-chat-messages {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1.3px, transparent 1.3px);
+}
+
+.pa-root .gh-msg {
+  max-width: 86%;
+  position: relative;
+}
+
+.pa-root .gh-bubble {
+  position: relative;
+  padding: 8px 12px 6px;
+  border-radius: 14px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  box-shadow: 0 1px 1px rgba(11, 20, 26, 0.13);
+  word-break: break-word;
+}
+
+.pa-root .gh-time {
+  display: block;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: rgba(17, 27, 33, 0.45);
+  text-align: start;
+  direction: ltr;
+}
+
+/* הודעות שלי (יוצאות) — ירוק, צד שמאל ב-RTL, עם זנב */
+.pa-root .gh-msg-user {
+  align-self: flex-end;
+}
+
+.pa-root .gh-msg-user .gh-bubble {
+  background: #d9fdd3;
+  color: #111b21;
+  border-end-start-radius: 4px;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-user .gh-bubble {
+  background: #005c4b;
+  color: #e9edef;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-user .gh-time {
+  color: rgba(233, 237, 239, 0.55);
+}
+
+/* הודעות Gemini (נכנסות) — לבן, צד ימין ב-RTL */
+.pa-root .gh-msg-model {
+  align-self: flex-start;
+}
+
+.pa-root .gh-msg-model .gh-bubble {
+  background: #ffffff;
+  color: #111b21;
+  border-end-end-radius: 4px;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-model .gh-bubble {
+  background: #202c33;
+  color: #e9edef;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-model .gh-time {
+  color: rgba(233, 237, 239, 0.5);
+}
+
+/* בועת חשיבה חיה */
+.pa-root .gh-msg-thought {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.pa-root .gh-msg-thought .gh-bubble {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1.5px dashed rgba(7, 94, 84, 0.35);
+  color: #3b4a54;
+  font-size: 12.8px;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-thought .gh-bubble {
+  background: rgba(32, 44, 51, 0.72);
+  border-color: rgba(37, 211, 102, 0.3);
+  color: #aebac1;
+}
+
+.pa-root .gh-thought-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  color: #128c7e;
+  margin-bottom: 3px;
+}
+
+html[data-theme="dark"] .pa-root .gh-thought-label {
+  color: #25d366;
+}
+
+.pa-root .gh-thought-label svg {
+  width: 14px;
+  height: 14px;
+  animation: ghPulse 1.6s ease-in-out infinite;
+}
+
+.pa-root .gh-msg-thought.is-done .gh-thought-label svg {
+  animation: none;
+}
+
+.pa-root .gh-thought-body {
+  display: block;
+  white-space: pre-wrap;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+@keyframes ghPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* הודעת מערכת / שגיאה */
+.pa-root .gh-msg-info,
+.pa-root .gh-msg-error,
+.pa-root .gh-msg-sources {
+  align-self: center;
+  max-width: 94%;
+}
+
+.pa-root .gh-msg-info .gh-bubble {
+  background: rgba(212, 234, 255, 0.92);
+  color: #0f3b5c;
+  font-size: 12.8px;
+  text-align: center;
+  border-radius: 10px;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-info .gh-bubble {
+  background: rgba(24, 42, 56, 0.95);
+  color: #8fc3e8;
+}
+
+.pa-root .gh-msg-error .gh-bubble {
+  background: #ffe2e0;
+  color: #8a1f17;
+  font-size: 13px;
+  text-align: center;
+  border-radius: 10px;
+}
+
+html[data-theme="dark"] .pa-root .gh-msg-error .gh-bubble {
+  background: #3a1d1a;
+  color: #ffb3ab;
+}
+
+.pa-root .gh-msg-info .gh-time,
+.pa-root .gh-msg-error .gh-time,
+.pa-root .gh-msg-sources .gh-time {
+  display: none;
+}
+
+/* כרטיס שעות מעוצב בתוך הבועה */
+.pa-root .gh-hours-card {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0;
+}
+
+.pa-root .gh-hours-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(7, 94, 84, 0.07);
+  font-size: 13.5px;
+}
+
+html[data-theme="dark"] .pa-root .gh-hours-row {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pa-root .gh-hours-row b {
+  font-weight: 800;
+}
+
+.pa-root .gh-hours-row span {
+  direction: ltr;
+  white-space: nowrap;
+}
+
+.pa-root .gh-hours-plain {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.pa-root .gh-hours-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(245, 196, 83, 0.18);
+  font-size: 12.8px;
+  line-height: 1.45;
+}
+
+.pa-root .gh-hours-note svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* מקורות */
+.pa-root .gh-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.pa-root .gh-msg-sources .gh-bubble {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.pa-root .gh-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f3b5c;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.14);
+}
+
+.pa-root .gh-source-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pa-root .gh-source-chip svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+html[data-theme="dark"] .pa-root .gh-source-chip {
+  background: #202c33;
+  color: #8fc3e8;
+}
+
+/* אינדיקטור הקלדה */
+.pa-root .gh-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 2px;
+}
+
+.pa-root .gh-typing i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8696a0;
+  animation: ghTyping 1.1s infinite;
+}
+
+.pa-root .gh-typing i:nth-child(2) { animation-delay: 0.18s; }
+.pa-root .gh-typing i:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes ghTyping {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* --- תחתית: צ'יפים מהירים + שורת קלט --- */
+.pa-root .gh-chat-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: #f0f2f5;
+}
+
+html[data-theme="dark"] .pa-root .gh-chat-footer {
+  background: #202c33;
+}
+
+.pa-root .gh-chat-quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pa-root .gh-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(7, 94, 84, 0.25);
+  background: #fff;
+  color: #075e54;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pa-root .gh-quick-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pa-root .gh-quick-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+html[data-theme="dark"] .pa-root .gh-quick-chip {
+  background: #111b21;
+  border-color: rgba(37, 211, 102, 0.3);
+  color: #25d366;
+}
+
+.pa-root .gh-apply-chip {
+  background: #25d366;
+  border-color: #25d366;
+  color: #073c2c;
+}
+
+html[data-theme="dark"] .pa-root .gh-apply-chip {
+  background: #00a884;
+  border-color: #00a884;
+  color: #06241c;
+}
+
+.pa-root .gh-chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.pa-root .gh-chat-input-row textarea {
+  flex: 1 1 auto;
+  min-height: 44px;
+  max-height: 110px;
+  padding: 11px 15px;
+  border: none;
+  border-radius: 22px;
+  background: #fff;
+  color: #111b21;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.1);
+}
+
+html[data-theme="dark"] .pa-root .gh-chat-input-row textarea {
+  background: #2a3942;
+  color: #e9edef;
+}
+
+.pa-root .gh-chat-input-row textarea::placeholder {
+  color: #8696a0;
+}
+
+.pa-root .gh-chat-send {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: #00a884;
+  color: #fff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+
+.pa-root .gh-chat-send:hover:not(:disabled) {
+  background: #02bd95;
+}
+
+.pa-root .gh-chat-send:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.pa-root .gh-chat-send:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pa-root .gh-chat-send svg {
+  width: 19px;
+  height: 19px;
+  transform: scaleX(-1);
+}
+
+/* --- מובייל: מסך מלא + מניעת זום iOS --- */
+@media (max-width: 640px) {
+  .pa-root .gh-chat-dialog {
+    width: 100vw;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .pa-root .gh-chat-shell {
+    border-radius: 0;
+  }
+
+  .pa-root .gh-chat-header {
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+  }
+
+  .pa-root .gh-chat-source-toggle {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .pa-root .gh-chat-input-row textarea {
+    font-size: 16px;
+  }
+}
