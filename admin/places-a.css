@@ -736,6 +736,11 @@ html[data-theme="dark"] .pa-root {
   color: var(--pa-kosher);
   border-color: color-mix(in srgb, var(--pa-kosher) 30%, transparent);
 }
+.pa-root .info-chip.kosher-friendly-chip {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: color-mix(in srgb, #0369a1 30%, transparent);
+}
 .pa-root .info-chip.food-chip {
   background: var(--pa-info-weak);
   color: var(--pa-info);
@@ -1310,6 +1315,12 @@ html[data-theme="dark"] .pa-root {
   outline: none;
   border-color: var(--pa-accent);
   box-shadow: 0 0 0 3px var(--pa-accent-weak);
+}
+.pa-root .edit-choice-field .edit-choice-other {
+  margin-top: 2px;
+}
+.pa-root .edit-choice-field .edit-choice-other.is-hidden {
+  display: none;
 }
 
 /* ============================================================

@@ -1710,6 +1710,11 @@ svg {
     color: #166534;
 }
 
+.kosher-friendly-chip {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
 .food-chip {
     background: #fff1e7;
     color: #b45309;
@@ -5796,6 +5801,11 @@ dialog.image-dialog::backdrop {
 html[data-theme="dark"] .kosher-chip {
     background: var(--green-soft);
     color: var(--green);
+}
+
+html[data-theme="dark"] .kosher-friendly-chip {
+    background: #18233e;
+    color: #7aa5f9;
 }
 
 html[data-theme="dark"] .food-chip {

@@ -33,7 +33,8 @@ const FIELD_LABELS = {
   hours: "שעות",
   website: "אתר",
   reservationLabel: "הזמנה",
-  isKosher: "כשרות",
+  isKosher: "כשרות (תעודה)",
+  kosherFriendly: "ידידותי לכשרות",
   foodType: "סוג אוכל",
   rating: "דירוג",
   coverImageUrl: "תמונה",
@@ -285,7 +286,8 @@ function placeDetails(place) {
     ["סוג", place.type],
     ["שעות", place.hours],
     ["אתר", place.website],
-    ["כשרות", place.isKosher ? "כן" : "לא"],
+    ["כשרות (תעודה)", place.isKosher ? "כן" : "לא"],
+    ["ידידותי לכשרות", place.kosherFriendly ? "כן" : "לא"],
     ["סוג אוכל", place.foodType],
     ["דירוג", place.rating]
   ];

@@ -3537,7 +3537,11 @@ function buildPlacesPromptText(places) {
 function placePromptTypeLabel(place) {
     const rawType = text(place.type);
     const restaurant = rawType.includes("restaurant") || rawType.includes("bar") || rawType.includes("מסעדה");
-    if (restaurant) return place.isKosher ? "מסעדה כשרה" : "מסעדה";
+    if (restaurant) {
+        if (place.isKosher) return "מסעדה כשרה";
+        if (place.kosherFriendly) return "מסעדה ידידותית לכשרות";
+        return "מסעדה";
+    }
     return rawType || "מקום";
 }
 
@@ -3575,6 +3579,7 @@ function publicPlaceToPromptPlace(place) {
         website: text(place.website),
         reservation: reservationFromString(place.reservationLabel),
         isKosher: Boolean(place.isKosher),
+        kosherFriendly: Boolean(place.kosherFriendly),
         foodType: text(place.foodType),
         rating: number(place.rating),
         coverImageUrl: text(place.coverImageUrl || (Array.isArray(place.imageUrls) ? place.imageUrls[0] : "")),
@@ -3600,6 +3605,7 @@ function templatePlacePayload(place) {
         website: nullable(place.website),
         reservation: place.reservation || "no",
         isKosher: Boolean(place.isKosher),
+        kosherFriendly: Boolean(place.kosherFriendly) && !Boolean(place.isKosher),
         foodType: nullable(place.foodType),
         rating: number(place.rating),
         coverImageUrl: nullable(place.coverImageUrl),

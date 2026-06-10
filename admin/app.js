@@ -52,9 +52,16 @@ const FOOD_TYPE_LABELS = {
   food_type_shawarma: "שווארמה",
   food_type_pizza: "פיצה",
   food_type_burger: "בורגר",
-  food_type_cafe: "קפה",
-  food_type_other: "אחר"
+  food_type_cafe: "קפה"
 };
+
+const RESERVATION_OPTIONS = [
+  ["reservation_no", "לא צריך להזמין"],
+  ["reservation_recommended", "מומלץ להזמין"],
+  ["reservation_yes", "חובה להזמין"]
+];
+
+const CHOICE_OTHER_VALUE = "__other__";
 
 const AI_PREFERENCE_STORAGE_PREFIX = "places-admin-ai";
 
@@ -2923,6 +2930,7 @@ function renderCurrentPlaceMetaChips(place) {
   chips.push(`<span class="info-chip ${place.adminApproved === true ? "approval-chip" : "pending-chip"}">${place.adminApproved === true ? "אושר מנהל" : "ממתין לאישור"}</span>`);
   if (place.hoursAdminApproved === true) chips.push(`<span class="info-chip hours-chip">אושרו שעות</span>`);
   if (place.isKosher) chips.push(`<span class="info-chip kosher-chip">כשר ✓</span>`);
+  if (place.kosherFriendly) chips.push(`<span class="info-chip kosher-friendly-chip">ידידותי לכשרות ✓</span>`);
   if (text(place.foodType)) chips.push(`<span class="info-chip food-chip">${escapeHtml(foodEmoji(place.foodType))} ${escapeHtml(foodTypeLabel(place.foodType))}</span>`);
   return `<div class="place-card-tags admin-place-meta-chips">${chips.join("")}</div>`;
 }
@@ -2944,7 +2952,8 @@ function currentPlaceAdminDetails(place, website) {
     ["שעות", place.hours],
     ["אתר", website || place.website],
     ["הזמנה", place.reservationLabel],
-    ["כשר", place.isKosher ? "כן" : "לא"],
+    ["כשר (תעודה)", place.isKosher ? "כן" : "לא"],
+    ["ידידותי לכשרות", place.kosherFriendly ? "כן" : "לא"],
     ["סוג אוכל", place.foodType],
     ["דירוג", place.rating],
     ["תמונת אווירה", place.isAtmosphereImage ? "כן" : "לא"],
@@ -2966,11 +2975,19 @@ function currentPlaceAdminDetails(place, website) {
   ];
 }
 
-function reservationDisplayLabel(value) {
+function normalizeReservationLabel(value) {
   const key = text(value);
-  if (!key || key === "reservation_no" || key === "no") return "";
-  if (key === "reservation_yes" || key === "yes") return "חובה";
-  if (key === "reservation_recommended" || key === "recommended") return "מומלץ";
+  if (!key || key === "no") return "reservation_no";
+  if (key === "yes") return "reservation_yes";
+  if (key === "recommended") return "reservation_recommended";
+  return key;
+}
+
+function reservationDisplayLabel(value) {
+  const key = normalizeReservationLabel(value);
+  if (!key || key === "reservation_no") return "";
+  if (key === "reservation_yes") return "חובה";
+  if (key === "reservation_recommended") return "מומלץ";
   return key;
 }
 
@@ -3014,6 +3031,8 @@ function openCurrentPlaceEditDialog(placeId) {
   $("currentPlaceDialog")?.close();
   $("currentPlaceEditTitle").textContent = draft.name || "עריכת מקום";
   $("currentPlaceEditFields").innerHTML = renderPlaceEditFields(draft);
+  bindChoiceFields($("currentPlaceEditFields"));
+  bindKosherEditFields($("currentPlaceEditFields"));
   $("currentPlaceEditDialog").showModal();
   refreshIcons();
 }
@@ -3022,7 +3041,7 @@ function renderPlaceEditFields(draft) {
   return `
       ${editInput("name", "שם המקום", draft.name)}
       ${editInput("destination", "יעד", draft.destination)}
-      <label class="edit-field"><span>סוג מקום</span><select data-edit-field="type">${PLACE_TYPES.map(([key, label]) => `<option value="${key}" ${draft.type === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      ${editChoiceField("type", "סוג מקום", draft.type, PLACE_TYPES)}
       ${editInput("location", "כתובת", draft.location)}
       ${editInput("lat", "Latitude", draft.lat ?? "")}
       ${editInput("lon", "Longitude", draft.lon ?? "")}
@@ -3030,8 +3049,8 @@ function renderPlaceEditFields(draft) {
       ${editTextarea("description", "תיאור ארוך", draft.description)}
       ${editInput("hours", "שעות פתיחה", draft.hours)}
       ${editInput("website", "אתר", draft.website)}
-      ${editInput("reservationLabel", "הזמנה", draft.reservationLabel)}
-      ${editInput("foodType", "סוג אוכל", draft.foodType)}
+      ${editChoiceField("reservationLabel", "הזמנה מראש", draft.reservationLabel || "reservation_no", RESERVATION_OPTIONS)}
+      ${editChoiceField("foodType", "סוג אוכל", draft.foodType, Object.entries(FOOD_TYPE_LABELS), { emptyOption: { value: "", label: "לא רלוונטי" } })}
       ${editInput("rating", "דירוג", draft.rating ?? "")}
       ${editInput("coverEmoji", "אימוג׳י", draft.coverEmoji)}
       ${editInput("coverBackgroundHex", "צבע רקע", draft.coverBackgroundHex)}
@@ -3041,7 +3060,8 @@ function renderPlaceEditFields(draft) {
       <input type="hidden" data-edit-field="pixabayId" value="${escapeAttr(draft.pixabayId ?? "")}" />
       <input type="hidden" data-edit-field="pixabayPageUrl" value="${escapeAttr(draft.pixabayPageUrl ?? "")}" />
       <label class="edit-field checkbox-field"><input type="checkbox" data-edit-field="isAtmosphereImage" ${draft.isAtmosphereImage ? "checked" : ""} /><span>תמונת אווירה</span></label>
-      <label class="edit-field checkbox-field"><input type="checkbox" data-edit-field="isKosher" ${draft.isKosher ? "checked" : ""} /><span>כשר</span></label>
+      <label class="edit-field checkbox-field"><input type="checkbox" data-edit-field="isKosher" ${draft.isKosher ? "checked" : ""} /><span>כשר (עם תעודה)</span></label>
+      <label class="edit-field checkbox-field"><input type="checkbox" data-edit-field="kosherFriendly" ${draft.kosherFriendly ? "checked" : ""} /><span>ידידותי לאוכלי כשרות</span></label>
     `;
 }
 
@@ -3327,6 +3347,7 @@ function examplePlace() {
     website: "https://www.il-colosseo.it/",
     reservation: "reservation_recommended",
     is_kosher: false,
+    kosher_friendly: false,
     food_type: "",
     cover_emoji: "🏛️",
     cover_background_hex: "#8B5CF6",
@@ -3363,10 +3384,16 @@ ${address ? `כתובת הייחוס של היעד: ${address}
  * opening_hours: שעות פתיחה מדויקות ומפורטות לפי ימים (כאמור בסעיף 3). אם אין שעות פתיחה מדויקות, כתוב: "מומלץ לבדוק באתר".
  * website: כתובת האתר הרשמי. אם אין קישור מדויק, שים קישור חיפוש של שם המקום ושם היעד באינטרנט, אבל תמיד תשאף לקישור הרשמי.
  * reservation: חובה להשתמש **אך ורק** באחד מהערכים: reservation_no, reservation_recommended, reservation_yes.
- * is_kosher: בוליאני (true או false).
+ * is_kosher: בוליאני. true **רק** למסעדה עם תעודת כשרות מאומתת (רבנות, בד״ץ, OU, הכשרות המהודרת וכו'). אם אין תעודה מוכחת — false.
+ * kosher_friendly: בוליאני. true למסעדות שאינן כשרות רשמית אך נוחות לאוכלי כשרות — למשל: טבעונית/צמחונית ללא עירוב בשר וחלב, תפריט עם אפשרויות כשרות בלי תעודה, דגים בלבד, מסעדה עם תפריט כשר אך פתוחה בשבת, וכדומה. false אם לא רלוונטי.
+   *(חשוב: is_kosher ו-kosher_friendly לא יכולים להיות שניהם true. אם יש תעודת כשרות — רק is_kosher=true).*
  * food_type: רלוונטי למסעדות בלבד. בחר אחד מהבאים:
    food_type_italian, food_type_dairy, food_type_meat, food_type_vegetarian, food_type_asian, food_type_shawarma, food_type_pizza, food_type_burger, food_type_cafe, food_type_other.
-   *(הערה קריטית: אם הקטגוריה אינה מסעדה, שדה זה חייב להיות מחרוזת ריקה "" ושדה ה-is_kosher חייב להיות false).*
+   *(הערה קריטית: אם הקטגוריה אינה מסעדה, שדה food_type חייב להיות מחרוזת ריקה "", וגם is_kosher וגם kosher_friendly חייבים להיות false).*
+**סינון כשרות לפי הבקשה שלי (אם צורפו הערות בתחילת הבקשה):**
+ - אם ביקשתי במפורש **מסעדות כשרות בלבד** / **רק כשר עם תעודה** — כלול **רק** מסעדות עם is_kosher=true ותעודת כשרות מאומתת. אל תכלול kosher_friendly.
+ - אם ביקשתי גם **ידידותי לאוכלי כשרות** / **גם מתאים לשומרי כשרות** — מותר לכלול בנוסף מסעדות עם kosher_friendly=true (כאשר is_kosher=false).
+ - אם לא ציינתי כשרות כלל — סמן את השדות לפי המציאות בלבד, בלי להעדיף או לסנן מסעדות לפי כשרות.
  * cover_emoji: אמוג'י בודד המייצג את אופי המקום.
  * cover_background_hex: קוד צבע בפורמט #RRGGBB שמתאים ומשלים את האמוג'י הנבחר.
  * rating: מספר עשרוני בין 1.0 ל-5.0 (ספרה אחת אחרי הנקודה). החזר 0 רק אם אין כל מידע על דירוג.
@@ -3376,7 +3403,7 @@ ${address ? `כתובת הייחוס של היעד: ${address}
 **חוקי תקינות JSON (קריטי - אי-עמידה בהם שוברת את כל הפלט):**
  א. בתוך ערכי טקסט (name, description, short_description, address, website, image_search_query) **אסור בהחלט** להשתמש בתו מרכאות כפולות " — תו זה שמור אך ורק לעטיפת המפתחות והערכים של ה-JSON. אם דרושות מרכאות בתוך טקסט, השתמש בגרש בודד ' או בגרשיים עבריים (״...״). לדוגמה נכון: "מסעדת 'הדייגים' בנמל". לעולם אל תכתוב מרכאות כפולות באמצע מחרוזת בלי לברוח אותן כ-\\".
  ב. אסור ירידות שורה אמיתיות בתוך ערך מחרוזת. כל מעבר שורה (למשל בשעות הפתיחה) מיוצג ברצף שני התווים \\n בלבד.
- ג. כל מפתח וכל ערך טקסטואלי עטופים במרכאות כפולות. מספרים (rating) ובוליאנים (is_kosher) ללא מרכאות.
+ ג. כל מפתח וכל ערך טקסטואלי עטופים במרכאות כפולות. מספרים (rating) ובוליאנים (is_kosher, kosher_friendly) ללא מרכאות.
  ד. אסור פסיק עודף (trailing comma) לפני } או לפני ]. כל אובייקט נפרד בפסיק, והאובייקט האחרון בלי פסיק אחריו.
  ה. לפני סיום ודא שכל סוגר { ו-[ שנפתח אכן נסגר, ושהמבנה הוא מערך תקני אחד שלם.
 **פורמט פלט נדרש (Strict Output constraints):**
@@ -3434,6 +3461,7 @@ function draftFromJson(item, index) {
     website: text(item.website),
     reservationLabel: text(item.reservation || item.reservationLabel) || "reservation_no",
     isKosher: Boolean(item.is_kosher || item.isKosher),
+    kosherFriendly: Boolean(item.kosher_friendly || item.kosherFriendly) && !Boolean(item.is_kosher || item.isKosher),
     foodType: text(item.food_type || item.foodType),
     rating: number(item.rating),
     coverEmoji: text(item.cover_emoji || item.coverEmoji) || PLACE_EMOJI[type] || "📌",
@@ -3557,6 +3585,8 @@ function openDraftReviewDialog(id) {
   state.reviewingDraftId = id;
   $("draftReviewTitle").textContent = draft.name || "בדיקת כרטיסיה";
   $("draftReviewFields").innerHTML = renderPlaceEditFields(draft);
+  bindChoiceFields($("draftReviewFields"));
+  bindKosherEditFields($("draftReviewFields"));
   $("draftReviewDialog")?.showModal();
   refreshIcons();
 }
@@ -4325,6 +4355,7 @@ function publicPlaceData(draft, existing = null) {
     website: nullable(draft.website),
     reservationLabel: draft.reservationLabel || "reservation_no",
     isKosher: Boolean(draft.isKosher),
+    kosherFriendly: Boolean(draft.kosherFriendly) && !Boolean(draft.isKosher),
     foodType: nullable(draft.foodType),
     rating: draft.rating ?? null,
     imageUrls: coverImageUrl ? [coverImageUrl] : [],
@@ -5767,8 +5798,9 @@ function currentPlaceToDraft(place) {
     lon: number(place.lon),
     hours: text(place.hours),
     website: text(place.website),
-    reservationLabel: text(place.reservationLabel) || "reservation_no",
+    reservationLabel: normalizeReservationLabel(place.reservationLabel) || "reservation_no",
     isKosher: Boolean(place.isKosher),
+    kosherFriendly: Boolean(place.kosherFriendly) && !Boolean(place.isKosher),
     foodType: text(place.foodType),
     rating: number(place.rating),
     coverEmoji: text(place.coverEmoji) || PLACE_EMOJI[place.type] || "📌",
@@ -5792,6 +5824,7 @@ function pixabayIdValue(raw) {
 function draftFromEditFields(containerId, fallback = {}) {
   const container = $(containerId);
   const draft = currentPlaceToDraft(fallback);
+  syncAllChoiceFields(container);
   container.querySelectorAll("[data-edit-field]").forEach((field) => {
     const key = field.dataset.editField;
     if (field.type === "checkbox") draft[key] = field.checked;
@@ -5819,10 +5852,89 @@ function editTextarea(field, label, value) {
   return `<label class="edit-field full"><span>${escapeHtml(label)}</span><textarea data-edit-field="${escapeAttr(field)}" rows="5">${escapeHtml(value ?? "")}</textarea></label>`;
 }
 
+function choiceFieldPresetValue(value, options) {
+  const key = text(value);
+  const optionKeys = new Set(options.map(([optionKey]) => optionKey));
+  return optionKeys.has(key) ? key : "";
+}
+
+function editChoiceField(field, label, value, options, { emptyOption = null } = {}) {
+  const preset = choiceFieldPresetValue(value, options);
+  const rawValue = text(value);
+  const isOther = Boolean(rawValue) && !preset;
+  const selectedValue = isOther ? CHOICE_OTHER_VALUE : (preset || emptyOption?.value || options[0]?.[0] || "");
+  const optionHtml = [
+    emptyOption ? `<option value="${escapeAttr(emptyOption.value)}" ${selectedValue === emptyOption.value ? "selected" : ""}>${escapeHtml(emptyOption.label)}</option>` : "",
+    ...options.map(([key, optionLabel]) => `<option value="${escapeAttr(key)}" ${selectedValue === key ? "selected" : ""}>${escapeHtml(optionLabel)}</option>`),
+    `<option value="${CHOICE_OTHER_VALUE}" ${isOther ? "selected" : ""}>אחר...</option>`
+  ].join("");
+  return `
+    <label class="edit-field edit-choice-field" data-choice-wrap="${escapeAttr(field)}">
+      <span>${escapeHtml(label)}</span>
+      <select data-choice-select="${escapeAttr(field)}">${optionHtml}</select>
+      <input
+        class="edit-choice-other ${isOther ? "" : "is-hidden"}"
+        type="text"
+        data-choice-other="${escapeAttr(field)}"
+        value="${escapeAttr(isOther ? rawValue : "")}"
+        placeholder="פרט..."
+      />
+      <input type="hidden" data-edit-field="${escapeAttr(field)}" value="${escapeAttr(value ?? "")}" />
+    </label>
+  `;
+}
+
+function syncChoiceField(container, field) {
+  if (!container || !field) return;
+  const select = container.querySelector(`[data-choice-select="${field}"]`);
+  const other = container.querySelector(`[data-choice-other="${field}"]`);
+  const hidden = container.querySelector(`[data-edit-field="${field}"]`);
+  if (!select || !hidden) return;
+  hidden.value = select.value === CHOICE_OTHER_VALUE ? text(other?.value) : select.value;
+}
+
+function syncAllChoiceFields(container) {
+  container?.querySelectorAll("[data-choice-select]").forEach((select) => syncChoiceField(container, select.dataset.choiceSelect));
+}
+
+function bindKosherEditFields(container) {
+  if (!container) return;
+  const isKosher = container.querySelector('[data-edit-field="isKosher"]');
+  const kosherFriendly = container.querySelector('[data-edit-field="kosherFriendly"]');
+  if (!isKosher || !kosherFriendly) return;
+  const syncExclusive = (source) => {
+    if (source === isKosher && isKosher.checked) kosherFriendly.checked = false;
+    if (source === kosherFriendly && kosherFriendly.checked) isKosher.checked = false;
+  };
+  isKosher.addEventListener("change", () => syncExclusive(isKosher));
+  kosherFriendly.addEventListener("change", () => syncExclusive(kosherFriendly));
+}
+
+function bindChoiceFields(container) {
+  if (!container) return;
+  container.querySelectorAll("[data-choice-select]").forEach((select) => {
+    const field = select.dataset.choiceSelect;
+    const other = container.querySelector(`[data-choice-other="${field}"]`);
+    const update = () => {
+      if (select.value === CHOICE_OTHER_VALUE) {
+        other?.classList.remove("is-hidden");
+        if (document.activeElement === select) other?.focus();
+      } else {
+        other?.classList.add("is-hidden");
+      }
+      syncChoiceField(container, field);
+    };
+    select.addEventListener("change", update);
+    other?.addEventListener("input", () => syncChoiceField(container, field));
+    update();
+  });
+}
+
 function renderPlaceTags(place) {
   const tags = [];
   tags.push(`<span class="info-chip ${place.adminApproved === true ? "approval-chip" : "pending-chip"}">${place.adminApproved === true ? "אושר מנהל" : "ממתין לאישור"}</span>`);
   if (place.isKosher) tags.push(`<span class="info-chip kosher-chip">כשר ✓</span>`);
+  if (place.kosherFriendly) tags.push(`<span class="info-chip kosher-friendly-chip">ידידותי לכשרות ✓</span>`);
   if (text(place.foodType)) tags.push(`<span class="info-chip food-chip">${escapeHtml(foodEmoji(place.foodType))} ${escapeHtml(foodTypeLabel(place.foodType))}</span>`);
   return tags.length ? `<div class="place-card-tags">${tags.join("")}</div>` : "";
 }
