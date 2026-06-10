@@ -1495,6 +1495,15 @@ html[data-theme="dark"] .pa-root {
   }
   .pa-root .trip-toast { min-width: 0; max-width: none; width: 100%; }
 
+  .pa-root .duplicate-group-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .pa-root .duplicate-group-section {
+    padding: 14px;
+    gap: 12px;
+  }
+
   .pa-root .image-credit-badge {
     max-width: min(62%, 150px);
     font-size: 9px;

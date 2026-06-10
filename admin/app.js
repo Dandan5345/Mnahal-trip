@@ -98,6 +98,7 @@ const state = {
   selectedDuplicateIds: new Set(),
   selectedDeleteIds: new Set(),
   duplicateGroups: [],
+  duplicatesCheckActive: false,
   duplicateAiModel: storedAiPreference("duplicates", "model", "deepseek-v4-pro"),
   duplicateThinkingEnabled: storedAiPreference("duplicates", "thinkingEnabled", "true") !== "false",
   duplicateReasoningEffort: storedAiPreference("duplicates", "reasoningEffort", "high"),
@@ -882,7 +883,7 @@ function renderPage() {
           <div class="section-heading compact">
             <div>
               <p class="eyebrow">תוצאות כפילויות</p>
-              <h2>קבוצות ומקומות לבדיקה</h2>
+              <h2>קבוצות כפילויות</h2>
             </div>
             <div class="action-row tight">
               <span class="count-pill" id="duplicateLoadedPill">0 מקומות</span>
@@ -4376,6 +4377,7 @@ async function loadPlacesFor(mode) {
     state.duplicatePlaces = places;
     state.selectedDuplicateIds.clear();
     state.duplicateGroups = [];
+    state.duplicatesCheckActive = false;
     renderDuplicatePlaces();
     setStatus("duplicateStatus", `נטענו ${places.length} מקומות.`);
   }
@@ -4404,11 +4406,93 @@ function docToPlace(document) {
   };
 }
 
+function duplicatePlaceMap() {
+  return new Map(state.duplicatePlaces.map((place) => [place.id, place]));
+}
+
+function duplicateVisiblePlaceIds() {
+  if (!state.duplicateGroups.length) return state.duplicatePlaces.map((place) => place.id);
+  const ids = new Set();
+  state.duplicateGroups.forEach((group) => group.card_ids.forEach((id) => ids.add(id)));
+  return [...ids];
+}
+
+function renderDuplicatePlaceCard(place, selectedSet, mode, { isRecommendedKeep = false } = {}) {
+  return `<article class="place-card duplicate-place-card${isRecommendedKeep ? " is-recommended-keep" : ""}">
+    ${imageHtml(place)}
+    <div class="place-body">
+      <label class="check-row"><input type="checkbox" data-select-place="${place.id}" data-mode="${mode}" ${selectedSet.has(place.id) ? "checked" : ""} /> בחירה</label>
+      ${isRecommendedKeep ? `<span class="duplicate-keep-badge"><i data-lucide="shield-check"></i>מומלץ להשאיר</span>` : ""}
+      <h3>${escapeHtml(place.name || "ללא שם")}</h3>
+      <div class="place-meta">${escapeHtml(place.location || "אין כתובת")}<br>${escapeHtml(place.website || "אין אתר")}</div>
+      <small class="place-meta">${escapeHtml(place.sharedByUsername || "")} · ${escapeHtml(place.sharedByUid || "")}</small>
+    </div>
+  </article>`;
+}
+
+function bindDuplicateSelectionCheckboxes() {
+  $$(`[data-mode="duplicates"]`).forEach((checkbox) => {
+    checkbox.onchange = () => {
+      checkbox.checked ? state.selectedDuplicateIds.add(checkbox.dataset.selectPlace) : state.selectedDuplicateIds.delete(checkbox.dataset.selectPlace);
+      renderDuplicatePlaces();
+    };
+  });
+}
+
 function renderDuplicatePlaces() {
-  $("duplicateLoadedPill").textContent = `${state.duplicatePlaces.length} מקומות`;
+  const hasGroups = state.duplicateGroups.length > 0;
+  const visibleIds = new Set(duplicateVisiblePlaceIds());
+  const duplicateCount = visibleIds.size;
+  const groupsContainer = $("duplicateGroups");
+  const cardsContainer = $("duplicateCards");
+  const resultsSection = groupsContainer?.closest(".result-section");
+
+  $("duplicateLoadedPill").textContent = hasGroups
+    ? `${state.duplicateGroups.length} קבוצות · ${duplicateCount} כפילויות`
+    : state.duplicatesCheckActive
+      ? "0 כפילויות"
+      : `${state.duplicatePlaces.length} מקומות`;
   $("duplicateSelectedPill").textContent = `${state.selectedDuplicateIds.size} מסומנים`;
-  renderPlaceSelectionGrid("duplicateCards", state.duplicatePlaces, state.selectedDuplicateIds, "duplicates");
-  renderDuplicateGroups();
+  resultsSection?.classList.toggle("duplicate-results--grouped", hasGroups);
+
+  if (state.duplicatesCheckActive && !hasGroups) {
+    groupsContainer.innerHTML = emptyHtml(state.isCheckingDuplicates ? "בודק כפילויות..." : "לא נמצאו כפילויות ביעד הזה.");
+    if (cardsContainer) cardsContainer.innerHTML = "";
+    bindDuplicateSelectionCheckboxes();
+    refreshIcons();
+    return;
+  }
+
+  if (hasGroups) {
+    const byId = duplicatePlaceMap();
+    groupsContainer.innerHTML = state.duplicateGroups.map((group) => {
+      const places = group.card_ids.map((id) => byId.get(id)).filter(Boolean);
+      const keepPlace = byId.get(group.recommended_keep_card_id);
+      const keepLabel = keepPlace?.name || group.recommended_keep_card_id || "לא הוגדר";
+      const cardsHtml = places.map((place) => renderDuplicatePlaceCard(
+        place,
+        state.selectedDuplicateIds,
+        "duplicates",
+        { isRecommendedKeep: place.id === group.recommended_keep_card_id }
+      )).join("");
+      return `<section class="duplicate-group-section">
+        <header class="duplicate-group-heading">
+          <h3>${escapeHtml(group.title)}</h3>
+          <p class="duplicate-group-meta">${places.length} מקומות כפולים · מומלץ להשאיר: <b>${escapeHtml(keepLabel)}</b></p>
+          ${group.reason ? `<p class="duplicate-group-reason">${escapeHtml(group.reason)}</p>` : ""}
+        </header>
+        <div class="duplicate-group-cards">${cardsHtml}</div>
+      </section>`;
+    }).join("");
+    if (cardsContainer) cardsContainer.innerHTML = "";
+  } else {
+    groupsContainer.innerHTML = "";
+    renderPlaceSelectionGrid("duplicateCards", state.duplicatePlaces, state.selectedDuplicateIds, "duplicates");
+    return;
+  }
+
+  bindDuplicateSelectionCheckboxes();
+  refreshIcons();
 }
 
 function renderDeletePlaces() {
@@ -4436,12 +4520,19 @@ function renderPlaceSelectionGrid(containerId, places, selectedSet, mode) {
 }
 
 function toggleAll(mode) {
-  const places = mode === "delete" ? state.deletePlaces : state.duplicatePlaces;
-  const set = mode === "delete" ? state.selectedDeleteIds : state.selectedDuplicateIds;
-  const allSelected = places.length > 0 && places.every((place) => set.has(place.id));
-  set.clear();
-  if (!allSelected) places.forEach((place) => set.add(place.id));
-  mode === "delete" ? renderDeletePlaces() : renderDuplicatePlaces();
+  if (mode === "delete") {
+    const allSelected = state.deletePlaces.length > 0 && state.deletePlaces.every((place) => state.selectedDeleteIds.has(place.id));
+    state.selectedDeleteIds.clear();
+    if (!allSelected) state.deletePlaces.forEach((place) => state.selectedDeleteIds.add(place.id));
+    renderDeletePlaces();
+    return;
+  }
+  const visibleIds = duplicateVisiblePlaceIds();
+  const visiblePlaces = state.duplicatePlaces.filter((place) => visibleIds.includes(place.id));
+  const allSelected = visiblePlaces.length > 0 && visiblePlaces.every((place) => state.selectedDuplicateIds.has(place.id));
+  state.selectedDuplicateIds.clear();
+  if (!allSelected) visiblePlaces.forEach((place) => state.selectedDuplicateIds.add(place.id));
+  renderDuplicatePlaces();
 }
 
 function syncDuplicateAiControls() {
@@ -4523,13 +4614,10 @@ function runLocalDuplicateCheck() {
     groups.push({ title: unique[0].name || key, reason: `התאמה מקומית לפי ${key}`, card_ids: unique.map((item) => item.id), recommended_keep_card_id: unique[0].id });
   });
   state.duplicateGroups = groups;
+  state.duplicatesCheckActive = true;
   groups.forEach((group) => group.card_ids.filter((id) => id !== group.recommended_keep_card_id).forEach((id) => state.selectedDuplicateIds.add(id)));
   renderDuplicatePlaces();
   setStatus("duplicateStatus", groups.length ? `נמצאו ${groups.length} קבוצות כפילות.` : "לא נמצאו כפילויות מקומיות.");
-}
-
-function renderDuplicateGroups() {
-  $("duplicateGroups").innerHTML = state.duplicateGroups.map((group) => `<div class="duplicate-group"><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml(group.reason || "")}</small><small>${group.card_ids.length} מקומות · מומלץ להשאיר: ${escapeHtml(group.recommended_keep_card_id || "לא הוגדר")}</small></div>`).join("");
 }
 
 function parseDuplicateResponse(response, candidates) {
@@ -4600,6 +4688,7 @@ async function runAiDuplicateCheck() {
   const candidates = [...state.duplicatePlaces];
   try {
     state.isCheckingDuplicates = true;
+    state.duplicatesCheckActive = true;
     state.duplicateGroups = [];
     state.duplicateLiveReasoning = "";
     state.duplicateLiveAnswer = "";
@@ -4648,6 +4737,7 @@ async function runAiDuplicateCheck() {
     state.duplicateLiveModel = payload.model || state.duplicateLiveModel || state.duplicateAiModel;
     const parsed = parseDuplicateResponse(payload.text || state.duplicateLiveAnswer, candidates);
     state.duplicateGroups = parsed;
+    state.duplicatesCheckActive = true;
     state.selectedDuplicateIds.clear();
     state.duplicateGroups.forEach((group) => group.card_ids.filter((id) => id !== group.recommended_keep_card_id).forEach((id) => state.selectedDuplicateIds.add(id)));
     renderDuplicatePlaces();
