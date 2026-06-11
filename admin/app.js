@@ -69,7 +69,7 @@ const state = {
   firebase: null,
   user: null,
   view: "current",
-  destinations: { import: null, duplicates: null, delete: null, currentFilter: null, fixAddress: null },
+  destinations: { import: null, duplicates: null, delete: null, currentFilter: null, fixAddress: null, translate: null },
   currentPlaces: [],
   currentSearch: "",
   currentRadiusKm: 50,
@@ -134,6 +134,17 @@ const state = {
   openingHoursLiveReasoning: "",
   openingHoursLiveAnswer: "",
   openingHoursLiveModel: null,
+  translatePlaces: [],
+  selectedTranslateIds: new Set(),
+  translateRadiusKm: 50,
+  translateLang: "en",
+  translateSending: false,
+  translateAiModel: storedAiPreference("translate", "model", "deepseek-v4-pro"),
+  translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "true") !== "false",
+  translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "high"),
+  translateLiveReasoning: "",
+  translateLiveAnswer: "",
+  translateLiveModel: null,
   aiBusyNoticeOpen: false
 };
 
@@ -249,6 +260,39 @@ const OPENING_HOURS_SYSTEM_PROMPT = `
 - approved תמיד true כאשר החזרת normalized_hours לפי הכללים.
 `;
 
+const TRANSLATE_LANG_OPTIONS = [
+  { value: "en", label: "אנגלית", english: "English" },
+  { value: "fr", label: "צרפתית", english: "French" }
+];
+
+function translateLangConfig(lang) {
+  return TRANSLATE_LANG_OPTIONS.find((option) => option.value === lang) || TRANSLATE_LANG_OPTIONS[0];
+}
+
+function buildTranslateSystemPrompt(lang) {
+  const targetEnglish = translateLangConfig(lang).english;
+  return `
+You translate TripInspo place cards for a Trip Planner app from Hebrew into ${targetEnglish}.
+You will receive a JSON array of places, each with: place_id, name, shortDescription, description, hours.
+
+Translate ONLY these four free-text fields into ${targetEnglish}: name, shortDescription, description, hours.
+Keep proper nouns sensible and natural for ${targetEnglish} readers (use the common ${targetEnglish} name of well-known places when one exists).
+If a source field is empty, return an empty string "" for it.
+
+Return STRICT JSON ONLY. No markdown, no code fences, no prose, no comments, no extra keys.
+The output MUST be a single JSON object keyed by each place_id, where each value has ONLY these four translated fields:
+{
+  "<place_id>": { "name": "...", "shortDescription": "...", "description": "...", "hours": "..." }
+}
+
+Hard rules:
+- Output exactly one object per input place_id that you were asked to translate, using the same place_id keys.
+- Do NOT translate, add, or include any other fields. Specifically do NOT touch type, foodType, reservationLabel, location, or address — those are localized separately by the app and must stay as-is (Hebrew).
+- Each value object must contain exactly these keys: name, shortDescription, description, hours.
+- Never invent place_ids, names, or content that did not appear in the input.
+`;
+}
+
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const PLACES_VIEW_CONFIG = {
@@ -326,6 +370,11 @@ const PLACES_VIEW_CONFIG = {
     title: "מחיקה מלאה",
     subtitle: "חיפוש יעד ומחיקה מלאה מ-public_places.",
     actions: ""
+  },
+  translate: {
+    title: "תרגם כרטיסיות",
+    subtitle: "טעינת כרטיסיות לפי יעד, תרגום עם AI לאנגלית/צרפתית ושמירה ל-public_places.",
+    actions: ""
   }
 };
 
@@ -376,21 +425,32 @@ function thinkingTemperature(thinkingEnabled, reasoningEffort) {
 }
 
 function renderAiPreferenceControls(feature, noteId) {
-  const config = feature === "duplicates"
-    ? {
+  let config;
+  if (feature === "duplicates") {
+    config = {
       model: state.duplicateAiModel,
       thinkingEnabled: state.duplicateThinkingEnabled,
       reasoningEffort: state.duplicateReasoningEffort,
       modelSelectId: "duplicateAiModelSelect",
       reasoningSelectId: "duplicateAiThinkingSelect"
-    }
-    : {
+    };
+  } else if (feature === "translate") {
+    config = {
+      model: state.translateAiModel,
+      thinkingEnabled: state.translateThinkingEnabled,
+      reasoningEffort: state.translateReasoningEffort,
+      modelSelectId: "translateAiModelSelect",
+      reasoningSelectId: "translateAiThinkingSelect"
+    };
+  } else {
+    config = {
       model: state.openingHoursAiModel,
       thinkingEnabled: state.openingHoursThinkingEnabled,
       reasoningEffort: state.openingHoursReasoningEffort,
       modelSelectId: "openingHoursAiModelSelect",
       reasoningSelectId: "openingHoursAiThinkingSelect"
     };
+  }
   return `
     <div class="duplicate-ai-controls" aria-label="הגדרות DeepSeek">
       <div class="ai-controls-grid">
@@ -1043,6 +1103,114 @@ function renderPage() {
         </section>
       </div>
 
+      <div class="tool-view ${activeView === "translate" ? "is-active" : ""}" data-tool-view="translate">
+        <div class="workspace-grid duplicate-layout">
+          <article class="panel">
+            <div class="panel-heading">
+              <span class="panel-icon blue"><i data-lucide="languages" aria-hidden="true"></i></span>
+              <div>
+                <h2>טעינת כרטיסיות לפי יעד</h2>
+                <p>בחר נקודת ייחוס ורדיוס משיכה.</p>
+              </div>
+            </div>
+            <div class="field-block">
+              <label for="translateDestinationInput">יעד לתרגום</label>
+              <div class="field-mini-toolbar">
+                <button class="mini-toggle" type="button" id="translateTranslateDestinationButton">
+                  <i data-lucide="languages" aria-hidden="true"></i>
+                  <span>תרגם לאנגלית</span>
+                </button>
+              </div>
+              <div class="search-input-row">
+                <i data-lucide="radar" aria-hidden="true"></i>
+                <input id="translateDestinationInput" type="text" placeholder="בחר יעד לתרגום כרטיסיות" autocomplete="off" />
+              </div>
+              <div class="suggestions" id="translateDestinationSuggestions"></div>
+            </div>
+            <div class="selected-place" id="selectedTranslateDestination">
+              <i data-lucide="radar" aria-hidden="true"></i>
+              <span>בחר נקודה מתוך ההשלמה האוטומטית.</span>
+            </div>
+            <div class="field-block">
+              <label for="translateRadiusRange">רדיוס משיכה</label>
+              <div class="range-row">
+                <input id="translateRadiusRange" type="range" min="1" max="300" step="1" value="50" />
+                <b id="translateRadiusValue">50 ק"מ</b>
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="primary-action" type="button" id="loadTranslatePlacesButton">
+                <i data-lucide="download-cloud" aria-hidden="true"></i>
+                <span>טען כרטיסיות</span>
+              </button>
+              <button class="ghost-action" type="button" id="selectTranslateAllButton">
+                <i data-lucide="check-square" aria-hidden="true"></i>
+                <span>בחר את כולם</span>
+              </button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <span class="panel-icon violet"><i data-lucide="sparkles" aria-hidden="true"></i></span>
+              <div>
+                <h2>תרגום עם AI</h2>
+                <p>בחר שפת יעד, מודל ורמת חשיבה לפני שליחה.</p>
+              </div>
+            </div>
+            <div class="field-block">
+              <label for="translateLangSelect">שפת יעד</label>
+              <select id="translateLangSelect">
+                <option value="en">אנגלית (EN)</option>
+                <option value="fr">צרפתית (FR)</option>
+              </select>
+            </div>
+            ${renderAiPreferenceControls("translate", "translateAiModeNote")}
+            <div class="action-row">
+              <button class="primary-action" type="button" id="runTranslateButton">
+                <i data-lucide="sparkles" aria-hidden="true"></i>
+                <span>שלח ל-AI</span>
+              </button>
+              <button class="ghost-action" type="button" id="copyTranslatePromptButton">
+                <i data-lucide="copy" aria-hidden="true"></i>
+                <span>העתק פרומפט</span>
+              </button>
+            </div>
+            <p class="status-line" id="translateStatus"></p>
+            <div class="duplicate-live-panel is-hidden" id="translateLivePanel">
+              <div class="duplicate-live-heading">
+                <strong id="translateLiveTitle">תשובת DeepSeek האחרונה</strong>
+                <span id="translateLiveMeta"></span>
+              </div>
+              <div class="duplicate-live-grid">
+                <div>
+                  <span>חשיבה</span>
+                  <pre id="translateLiveReasoning"></pre>
+                </div>
+                <div>
+                  <span>תשובה</span>
+                  <pre id="translateLiveAnswer"></pre>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <section class="result-section">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">כרטיסיות לתרגום</p>
+              <h2>בחר כרטיסיות ותרגם</h2>
+            </div>
+            <div class="action-row tight">
+              <span class="count-pill" id="translateLoadedPill">0 כרטיסיות</span>
+              <span class="count-pill" id="translateSelectedPill">0 מסומנים</span>
+            </div>
+          </div>
+          <div class="cards-grid compact-grid" id="translateCards"></div>
+        </section>
+      </div>
+
       <dialog class="image-dialog" id="imageDialog">
         <form method="dialog" class="image-dialog-shell">
           <div class="dialog-header">
@@ -1331,6 +1499,7 @@ function init() {
   bindFixAddressTools();
   bindDuplicateTools();
   bindDeleteTools();
+  bindTranslateTools();
   bindImageDialog();
   bindBrokenImages();
   bindOpeningHoursTools();
@@ -1645,6 +1814,303 @@ function bindDeleteTools() {
   $("loadDeletePlacesButton").addEventListener("click", () => loadPlacesFor("delete"));
   $("selectDeleteAllButton").addEventListener("click", () => toggleAll("delete"));
   $("deleteSelectedPlacesButton").addEventListener("click", () => deleteSelected("delete"));
+}
+
+function bindTranslateTools() {
+  const input = $("translateDestinationInput");
+  if (input) setupDestinationSearch("translate", input, $("translateDestinationSuggestions"), $("selectedTranslateDestination"));
+  $("translateTranslateDestinationButton")?.addEventListener("click", async (event) => {
+    const translated = await translateInputValueToEnglish("translateDestinationInput", event.currentTarget);
+    if (translated) $("translateDestinationInput")?.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  $("translateRadiusRange")?.addEventListener("input", (event) => {
+    state.translateRadiusKm = Number(event.target.value || 50);
+    $("translateRadiusValue").textContent = `${state.translateRadiusKm} ק"מ`;
+  });
+  const langSelect = $("translateLangSelect");
+  if (langSelect) {
+    langSelect.value = state.translateLang;
+    langSelect.addEventListener("change", (event) => {
+      state.translateLang = event.target.value === "fr" ? "fr" : "en";
+    });
+  }
+  $("translateAiModelSelect")?.addEventListener("change", (event) => {
+    state.translateAiModel = event.target.value;
+    saveAiPreference("translate", "model", state.translateAiModel);
+    syncTranslateAiControls();
+  });
+  $("translateAiThinkingSelect")?.addEventListener("change", (event) => {
+    const nextValue = event.target.value;
+    state.translateThinkingEnabled = nextValue !== "off";
+    if (nextValue !== "off") state.translateReasoningEffort = nextValue;
+    saveAiPreference("translate", "thinkingEnabled", state.translateThinkingEnabled);
+    saveAiPreference("translate", "reasoningEffort", state.translateReasoningEffort);
+    syncTranslateAiControls();
+  });
+  $("loadTranslatePlacesButton")?.addEventListener("click", loadTranslatePlaces);
+  $("selectTranslateAllButton")?.addEventListener("click", toggleAllTranslate);
+  $("copyTranslatePromptButton")?.addEventListener("click", copyTranslatePrompt);
+  $("runTranslateButton")?.addEventListener("click", runAiTranslate);
+  syncTranslateAiControls();
+}
+
+async function loadTranslatePlaces() {
+  if (!state.user) {
+    setStatus("translateStatus", "צריך להתחבר לפני טעינת כרטיסיות.", true);
+    return;
+  }
+  const dest = state.destinations.translate;
+  if (!dest?.lat || !dest?.lon) {
+    setStatus("translateStatus", "בחר יעד מההשלמה האוטומטית לפני טעינה.", true);
+    return;
+  }
+  setStatus("translateStatus", "טוען כרטיסיות...");
+  let places = [];
+  try {
+    places = await fetchPlacesByRadius(dest.lat, dest.lon, state.translateRadiusKm);
+  } catch (error) {
+    setStatus("translateStatus", `טעינת הכרטיסיות נכשלה: ${error.message}`, true);
+    return;
+  }
+  state.translatePlaces = places.sort((a, b) => text(a.name).localeCompare(text(b.name), "he"));
+  state.selectedTranslateIds.clear();
+  renderTranslatePlaces();
+  setStatus("translateStatus", `נטענו ${places.length} כרטיסיות ברדיוס ${state.translateRadiusKm} ק"מ מ-${dest.label}.`);
+}
+
+function toggleAllTranslate() {
+  const places = state.translatePlaces;
+  const set = state.selectedTranslateIds;
+  const allSelected = places.length > 0 && places.every((place) => set.has(place.id));
+  set.clear();
+  if (!allSelected) places.forEach((place) => set.add(place.id));
+  renderTranslatePlaces();
+}
+
+function renderTranslatePlaces() {
+  if ($("translateLoadedPill")) $("translateLoadedPill").textContent = `${state.translatePlaces.length} כרטיסיות`;
+  if ($("translateSelectedPill")) $("translateSelectedPill").textContent = `${state.selectedTranslateIds.size} מסומנים`;
+  const container = $("translateCards");
+  if (!container) return;
+  container.innerHTML = state.translatePlaces.map(renderTranslateCard).join("") || emptyHtml("אין כרטיסיות. בחר יעד ולחץ טען כרטיסיות.");
+  container.querySelectorAll("[data-translate-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+    checkbox.checked ? state.selectedTranslateIds.add(checkbox.dataset.translateSelect) : state.selectedTranslateIds.delete(checkbox.dataset.translateSelect);
+    if ($("translateSelectedPill")) $("translateSelectedPill").textContent = `${state.selectedTranslateIds.size} מסומנים`;
+  }));
+  refreshIcons();
+}
+
+function translateBadgesHtml(place) {
+  const badges = ['<span class="count-pill">HE</span>'];
+  if (place.translations?.en) badges.push('<span class="count-pill">EN</span>');
+  if (place.translations?.fr) badges.push('<span class="count-pill">FR</span>');
+  return `<div class="action-row tight">${badges.join("")}</div>`;
+}
+
+function renderTranslateCard(place) {
+  return `<article class="place-card">
+    ${imageHtml(place)}
+    <div class="place-body">
+      <label class="check-row"><input type="checkbox" data-translate-select="${place.id}" ${state.selectedTranslateIds.has(place.id) ? "checked" : ""} /> בחירה</label>
+      <h3>${escapeHtml(place.name || "ללא שם")}</h3>
+      <div class="place-meta">${escapeHtml(place.location || "אין כתובת")}</div>
+      ${translateBadgesHtml(place)}
+    </div>
+  </article>`;
+}
+
+function syncTranslateAiControls() {
+  const modelSelect = $("translateAiModelSelect");
+  if (modelSelect) {
+    modelSelect.value = state.translateAiModel;
+    modelSelect.disabled = state.translateSending;
+  }
+  const thinkingSelect = $("translateAiThinkingSelect");
+  if (thinkingSelect) {
+    thinkingSelect.value = selectedReasoningValue(state.translateThinkingEnabled, state.translateReasoningEffort);
+    thinkingSelect.disabled = state.translateSending;
+  }
+  const note = $("translateAiModeNote");
+  if (note) {
+    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · JSON בלבד.</span>`;
+    refreshIcons();
+  }
+  const runButton = $("runTranslateButton");
+  if (runButton) {
+    runButton.disabled = state.translateSending;
+    runButton.innerHTML = state.translateSending
+      ? `<i data-lucide="loader-circle" aria-hidden="true"></i><span>מתרגם…</span>`
+      : `<i data-lucide="sparkles" aria-hidden="true"></i><span>שלח ל-AI</span>`;
+  }
+}
+
+function selectedTranslatePlaces() {
+  return state.translatePlaces.filter((place) => state.selectedTranslateIds.has(place.id));
+}
+
+function buildTranslatePrompt(places) {
+  return JSON.stringify({
+    task: "Translate the free-text fields of these TripInspo place cards.",
+    target_language: translateLangConfig(state.translateLang).english,
+    places: places.map((place) => ({
+      place_id: place.id,
+      name: text(place.name),
+      shortDescription: text(place.shortDescription),
+      description: text(place.description),
+      hours: text(place.hours)
+    }))
+  });
+}
+
+function copyTranslatePrompt() {
+  const places = selectedTranslatePlaces();
+  if (!places.length) {
+    setStatus("translateStatus", "בחר לפחות כרטיסיה אחת כדי להעתיק פרומפט.", true);
+    return;
+  }
+  copyText(buildTranslatePrompt(places), "פרומפט התרגום הועתק.", "translateStatus");
+}
+
+function renderTranslateLivePanel() {
+  const panel = $("translateLivePanel");
+  if (!panel) return;
+  const hasContent = state.translateLiveReasoning.trim() || state.translateLiveAnswer.trim();
+  panel.classList.toggle("is-hidden", !hasContent);
+  $("translateLiveTitle").textContent = state.translateSending ? "DeepSeek Live" : "תשובת DeepSeek האחרונה";
+  $("translateLiveMeta").textContent = aiModeSummary(state.translateLiveModel || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort);
+  $("translateLiveReasoning").textContent = state.translateLiveReasoning.trim() || "אין תוכן חשיבה להצגה.";
+  $("translateLiveAnswer").textContent = state.translateLiveAnswer.trim() || "אין תשובה להצגה.";
+}
+
+function parseTranslateResponse(response, places) {
+  const byId = new Map(places.map((place) => [place.id, place]));
+  const decoded = JSON.parse(extractJsonObjectText(response));
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return {};
+  const result = {};
+  Object.entries(decoded).forEach(([id, value]) => {
+    if (!byId.has(id) || !value || typeof value !== "object") return;
+    result[id] = {
+      name: text(value.name),
+      shortDescription: text(value.shortDescription),
+      description: text(value.description),
+      hours: text(value.hours)
+    };
+  });
+  return result;
+}
+
+async function requestTranslateBatch(places, lang) {
+  const idToken = await state.user.getIdToken();
+  const response = await fetch(DUPLICATE_AI_ENDPOINT, {
+    method: "POST",
+    headers: await withAppCheckHeaders({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    }),
+    body: JSON.stringify({
+      feature: "admin_tool",
+      systemPrompt: buildTranslateSystemPrompt(lang),
+      userPrompt: buildTranslatePrompt(places),
+      maxTokens: 8192,
+      preferredModel: state.translateAiModel,
+      thinkingEnabled: state.translateThinkingEnabled,
+      reasoningEffort: state.translateReasoningEffort,
+      temperature: thinkingTemperature(state.translateThinkingEnabled, state.translateReasoningEffort),
+      jsonObjectResponse: true,
+      stream: true
+    })
+  });
+  if (!response.ok) throw new Error(parseWorkflowErrorMessage(await response.text()));
+  const payload = await readDeepSeekResponse(response, {
+    getFallbackModel: () => state.translateAiModel,
+    onModel: (model) => {
+      state.translateLiveModel = model;
+    },
+    onReasoningDelta: (delta) => {
+      state.translateLiveReasoning = appendLiveText(state.translateLiveReasoning, delta);
+    },
+    onContentDelta: (delta) => {
+      state.translateLiveAnswer = appendLiveText(state.translateLiveAnswer, delta);
+    },
+    onText: (value) => {
+      state.translateLiveAnswer = value;
+    },
+    render: renderTranslateLivePanel
+  });
+  state.translateLiveModel = payload.model || state.translateLiveModel || state.translateAiModel;
+  return parseTranslateResponse(payload.text || state.translateLiveAnswer, places);
+}
+
+async function runAiTranslate() {
+  if (state.translateSending) return;
+  if (!state.user) {
+    setStatus("translateStatus", "צריך להתחבר לפני שליחת תרגום.", true);
+    return;
+  }
+  const places = selectedTranslatePlaces();
+  if (!places.length) {
+    setStatus("translateStatus", "בחר לפחות כרטיסיה אחת לתרגום.", true);
+    return;
+  }
+  const lang = state.translateLang;
+  const langConfig = translateLangConfig(lang);
+  const batches = chunkArray(places, DUPLICATE_AI_BATCH_SIZE);
+  try {
+    state.translateSending = true;
+    state.translateLiveReasoning = "";
+    state.translateLiveAnswer = "";
+    state.translateLiveModel = null;
+    syncTranslateAiControls();
+    renderTranslateLivePanel();
+    await ensureFreshAdminAuthToken();
+    const merged = {};
+    for (let index = 0; index < batches.length; index += 1) {
+      const batch = batches[index];
+      setStatus("translateStatus", batches.length > 1
+        ? `שולח מנה ${index + 1}/${batches.length} (${batch.length} כרטיסיות) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`
+        : `שולח תרגום ל-${langConfig.label} עם ${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
+      if (index > 0) {
+        state.translateLiveReasoning = "";
+        state.translateLiveAnswer = "";
+        renderTranslateLivePanel();
+      }
+      const parsed = await requestTranslateBatch(batch, lang);
+      Object.assign(merged, parsed);
+    }
+    const savedCount = await saveTranslations(merged, lang);
+    renderTranslatePlaces();
+    setStatus("translateStatus", savedCount
+      ? `${langConfig.label}: נשמרו ${savedCount} תרגומים מתוך ${places.length} כרטיסיות עם ${modelDisplayName(state.translateLiveModel || state.translateAiModel)}.`
+      : `${modelDisplayName(state.translateLiveModel || state.translateAiModel)} לא החזיר תרגומים תקינים.`);
+    if (savedCount) showToast(`נשמרו ${savedCount} תרגומים ל${langConfig.label}.`);
+  } catch (error) {
+    setStatus("translateStatus", `תרגום ה-AI נכשל: ${parseWorkflowErrorMessage(error.message)}`, true);
+  } finally {
+    state.translateSending = false;
+    syncTranslateAiControls();
+    renderTranslateLivePanel();
+  }
+}
+
+async function saveTranslations(translations, lang) {
+  const fs = state.firebase.firestore;
+  const db = state.firebase.db;
+  const entries = Object.entries(translations);
+  let saved = 0;
+  for (const [id, fields] of entries) {
+    const place = state.translatePlaces.find((item) => item.id === id);
+    if (!place) continue;
+    const value = {
+      name: text(fields.name),
+      shortDescription: text(fields.shortDescription),
+      description: text(fields.description),
+      hours: text(fields.hours)
+    };
+    await fs.setDoc(fs.doc(db, "public_places", id), { translations: { [lang]: value } }, { merge: true });
+    place.translations = { ...(place.translations || {}), [lang]: value };
+    saved += 1;
+  }
+  return saved;
 }
 
 function bindFixAddressTools() {

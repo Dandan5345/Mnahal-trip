@@ -30,7 +30,8 @@ const NAV_ITEMS = [
       { key: "fix-hours", href: "./places.html?view=fix-hours", label: "תקן שעות פתיחה" },
       { key: "fix-addresses", href: "./places.html?view=fix-addresses", label: "תיקון כתובות" },
       { key: "duplicates", href: "./places.html?view=duplicates", label: "מחיקת כפילויות" },
-      { key: "delete", href: "./places.html?view=delete", label: "מחיקה מלאה" }
+      { key: "delete", href: "./places.html?view=delete", label: "מחיקה מלאה" },
+      { key: "translate", href: "./places.html?view=translate", label: "תרגם כרטיסיות" }
     ]
   },
   {
