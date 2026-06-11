@@ -139,6 +139,8 @@ const state = {
   translateRadiusKm: 50,
   translateLang: "en",
   translateSending: false,
+  translateSaving: false,
+  translatePending: {},
   translateAiModel: storedAiPreference("translate", "model", "deepseek-v4-pro"),
   translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "true") !== "false",
   translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "high"),
@@ -1175,6 +1177,10 @@ function renderPage() {
                 <i data-lucide="copy" aria-hidden="true"></i>
                 <span>העתק פרומפט</span>
               </button>
+              <button class="primary-action" type="button" id="saveTranslateButton" disabled>
+                <i data-lucide="save" aria-hidden="true"></i>
+                <span>שמור את כל השינויים</span>
+              </button>
             </div>
             <p class="status-line" id="translateStatus"></p>
             <div class="duplicate-live-panel is-hidden" id="translateLivePanel">
@@ -1851,6 +1857,7 @@ function bindTranslateTools() {
   $("selectTranslateAllButton")?.addEventListener("click", toggleAllTranslate);
   $("copyTranslatePromptButton")?.addEventListener("click", copyTranslatePrompt);
   $("runTranslateButton")?.addEventListener("click", runAiTranslate);
+  $("saveTranslateButton")?.addEventListener("click", saveAllTranslatePending);
   syncTranslateAiControls();
 }
 
@@ -1874,7 +1881,9 @@ async function loadTranslatePlaces() {
   }
   state.translatePlaces = places.sort((a, b) => text(a.name).localeCompare(text(b.name), "he"));
   state.selectedTranslateIds.clear();
+  state.translatePending = {};
   renderTranslatePlaces();
+  updateTranslateSaveButton();
   setStatus("translateStatus", `נטענו ${places.length} כרטיסיות ברדיוס ${state.translateRadiusKm} ק"מ מ-${dest.label}.`);
 }
 
@@ -1904,6 +1913,12 @@ function translateBadgesHtml(place) {
   const badges = ['<span class="count-pill">HE</span>'];
   if (place.translations?.en) badges.push('<span class="count-pill">EN</span>');
   if (place.translations?.fr) badges.push('<span class="count-pill">FR</span>');
+  const pending = state.translatePending[place.id];
+  if (pending) {
+    Object.keys(pending).forEach((lang) => {
+      badges.push(`<span class="count-pill" style="background:rgba(245,158,11,0.16);color:#b45309;border-color:rgba(245,158,11,0.45)">${lang.toUpperCase()} ✎ ממתין</span>`);
+    });
+  }
   return `<div class="action-row tight">${badges.join("")}</div>`;
 }
 
@@ -2077,12 +2092,13 @@ async function runAiTranslate() {
       const parsed = await requestTranslateBatch(batch, lang);
       Object.assign(merged, parsed);
     }
-    const savedCount = await saveTranslations(merged, lang);
+    const readyCount = stageTranslatePending(merged, lang);
     renderTranslatePlaces();
-    setStatus("translateStatus", savedCount
-      ? `${langConfig.label}: נשמרו ${savedCount} תרגומים מתוך ${places.length} כרטיסיות עם ${modelDisplayName(state.translateLiveModel || state.translateAiModel)}.`
+    updateTranslateSaveButton();
+    setStatus("translateStatus", readyCount
+      ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelDisplayName(state.translateLiveModel || state.translateAiModel)}). לחץ "שמור את כל השינויים" כדי לשמור.`
       : `${modelDisplayName(state.translateLiveModel || state.translateAiModel)} לא החזיר תרגומים תקינים.`);
-    if (savedCount) showToast(`נשמרו ${savedCount} תרגומים ל${langConfig.label}.`);
+    if (readyCount) showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
   } catch (error) {
     setStatus("translateStatus", `תרגום ה-AI נכשל: ${parseWorkflowErrorMessage(error.message)}`, true);
   } finally {
@@ -2092,25 +2108,78 @@ async function runAiTranslate() {
   }
 }
 
-async function saveTranslations(translations, lang) {
-  const fs = state.firebase.firestore;
-  const db = state.firebase.db;
-  const entries = Object.entries(translations);
-  let saved = 0;
-  for (const [id, fields] of entries) {
-    const place = state.translatePlaces.find((item) => item.id === id);
-    if (!place) continue;
+// Stage AI results in memory (pending), keyed by placeId -> lang -> fields.
+// Nothing is written to Firestore until the user clicks "שמור את כל השינויים".
+function stageTranslatePending(translations, lang) {
+  let staged = 0;
+  Object.entries(translations).forEach(([id, fields]) => {
+    if (!state.translatePlaces.some((item) => item.id === id)) return;
     const value = {
       name: text(fields.name),
       shortDescription: text(fields.shortDescription),
       description: text(fields.description),
       hours: text(fields.hours)
     };
-    await fs.setDoc(fs.doc(db, "public_places", id), { translations: { [lang]: value } }, { merge: true });
-    place.translations = { ...(place.translations || {}), [lang]: value };
-    saved += 1;
+    state.translatePending[id] = { ...(state.translatePending[id] || {}), [lang]: value };
+    staged += 1;
+  });
+  return staged;
+}
+
+function pendingTranslateCount() {
+  return Object.values(state.translatePending).reduce((sum, langs) => sum + Object.keys(langs).length, 0);
+}
+
+function updateTranslateSaveButton() {
+  const button = $("saveTranslateButton");
+  if (!button) return;
+  const count = pendingTranslateCount();
+  button.disabled = state.translateSaving || count === 0;
+  button.innerHTML = state.translateSaving
+    ? `<i data-lucide="loader-circle" aria-hidden="true"></i><span>שומר…</span>`
+    : `<i data-lucide="save" aria-hidden="true"></i><span>שמור את כל השינויים${count ? ` (${count})` : ""}</span>`;
+  refreshIcons();
+}
+
+async function saveAllTranslatePending() {
+  if (state.translateSaving) return;
+  const ids = Object.keys(state.translatePending);
+  if (!ids.length) {
+    setStatus("translateStatus", "אין שינויים לשמירה.", true);
+    return;
   }
-  return saved;
+  if (!state.user) {
+    setStatus("translateStatus", "צריך להתחבר לפני שמירה.", true);
+    return;
+  }
+  const fs = state.firebase.firestore;
+  const db = state.firebase.db;
+  try {
+    state.translateSaving = true;
+    updateTranslateSaveButton();
+    setStatus("translateStatus", "שומר תרגומים…");
+    await ensureFreshAdminAuthToken();
+    let saved = 0;
+    for (const id of ids) {
+      const langs = state.translatePending[id];
+      const langKeys = Object.keys(langs);
+      if (!langKeys.length) continue;
+      await fs.setDoc(fs.doc(db, "public_places", id), { translations: { ...langs } }, { merge: true });
+      const place = state.translatePlaces.find((item) => item.id === id);
+      if (place) place.translations = { ...(place.translations || {}), ...langs };
+      saved += langKeys.length;
+    }
+    state.translatePending = {};
+    renderTranslatePlaces();
+    updateTranslateSaveButton();
+    setStatus("translateStatus", `נשמרו ${saved} תרגומים.`);
+    showToast(`נשמרו ${saved} תרגומים.`);
+  } catch (error) {
+    setStatus("translateStatus", `שמירת התרגומים נכשלה: ${parseWorkflowErrorMessage(error.message)}`, true);
+  } finally {
+    state.translateSaving = false;
+    updateTranslateSaveButton();
+  }
 }
 
 function bindFixAddressTools() {
