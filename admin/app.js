@@ -2209,6 +2209,7 @@ function isTranslateBatchRetryableError(error) {
     error?.emptyResponse
     || error?.incompleteResponse
     || error?.aiError === "empty_content"
+    || error?.aiError === "reasoning_stalled"
     || error instanceof SyntaxError
     || error?.name === "SyntaxError"
     || /Unexpected end of JSON input|Unterminated string/i.test(error?.message || "")
