@@ -2084,7 +2084,11 @@ function patchTranslateBatchLive(batchIndex, patch) {
 
 function parseTranslateResponse(response, places) {
   const byId = new Map(places.map((place) => [place.id, place]));
-  const decoded = JSON.parse(extractJsonObjectText(response));
+  const jsonText = extractJsonObjectText(response);
+  if (!jsonText.trim()) {
+    throw new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
+  }
+  const decoded = JSON.parse(jsonText);
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return {};
   const result = {};
   Object.entries(decoded).forEach(([id, value]) => {
@@ -2111,7 +2115,7 @@ async function requestTranslateBatch(places, lang, batchIndex) {
       feature: "admin_tool",
       systemPrompt: buildTranslateSystemPrompt(lang),
       userPrompt: buildTranslatePrompt(places),
-      maxTokens: 8192,
+      maxTokens: 32768,
       preferredModel: state.translateAiModel,
       thinkingEnabled: state.translateThinkingEnabled,
       reasoningEffort: state.translateReasoningEffort,
@@ -3282,7 +3286,7 @@ async function requestOpeningHoursFix(places) {
       feature: "admin_tool",
       systemPrompt: OPENING_HOURS_SYSTEM_PROMPT,
       userPrompt: buildOpeningHoursPrompt(places),
-      maxTokens: 8192,
+      maxTokens: 32768,
       preferredModel: state.openingHoursAiModel,
       thinkingEnabled: state.openingHoursThinkingEnabled,
       reasoningEffort: state.openingHoursReasoningEffort,
@@ -5553,7 +5557,7 @@ async function requestDuplicateAiBatch(candidates, destinationQuery, batchIndex,
       feature: "admin_tool",
       systemPrompt: DUPLICATE_SYSTEM_PROMPT,
       userPrompt: buildDuplicatePrompt(destinationQuery, candidates, { batchIndex, batchCount }),
-      maxTokens: 8192,
+      maxTokens: 32768,
       preferredModel: state.duplicateAiModel,
       thinkingEnabled: state.duplicateThinkingEnabled,
       reasoningEffort: state.duplicateReasoningEffort,

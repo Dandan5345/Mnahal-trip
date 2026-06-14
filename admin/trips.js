@@ -1263,7 +1263,7 @@ async function requestChatReplyStream(userPrompt, {
             feature: "admin_tool",
             systemPrompt,
             userPrompt,
-            maxTokens: 8192,
+            maxTokens: 32768,
             preferredModel: state.chat.model,
             thinkingEnabled: Boolean(thinkingEnabled),
             reasoningEffort: thinkingEnabled ? reasoningEffort : "off",

@@ -177,6 +177,7 @@ export async function readDeepSeekResponse(response, handlers = {}) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/event-stream") || !response.body) {
     const payload = await response.json();
+    if (payload.error) throw new Error(payload.detail || payload.error);
     if (payload.model) handlers.onModel?.(payload.model);
     if (payload.reasoning) handlers.onReasoningDelta?.(payload.reasoning);
     if (payload.text) handlers.onText?.(payload.text);
@@ -209,6 +210,7 @@ export async function readDeepSeekResponse(response, handlers = {}) {
         } catch (_) {
           continue;
         }
+        if (event.error) throw new Error(event.detail || event.error);
         if (event.model) {
           model = event.model;
           handlers.onModel?.(model);
@@ -517,7 +519,7 @@ export async function requestTripTranslation({
       feature: "admin_tool",
       systemPrompt,
       userPrompt: JSON.stringify(payload, null, 2),
-      maxTokens: 8192,
+      maxTokens: 32768,
       preferredModel: aiModel,
       thinkingEnabled,
       reasoningEffort,
@@ -531,7 +533,11 @@ export async function requestTripTranslation({
 }
 
 export function parseTranslationResponse(rawText) {
-  const decoded = JSON.parse(extractJsonObjectText(rawText));
+  const jsonText = extractJsonObjectText(rawText);
+  if (!jsonText.trim()) {
+    throw new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הפריטים, או הורד את רמת החשיבה.");
+  }
+  const decoded = JSON.parse(jsonText);
   const translation = decoded?.translation;
   if (!translation || typeof translation !== "object") {
     throw new Error("AI response missing translation object");
