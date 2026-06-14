@@ -148,8 +148,8 @@ const state = {
   translateSaving: false,
   translatePending: {},
   translateAiModel: storedAiPreference("translate", "model", "deepseek-v4-pro"),
-  translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "false") === "true",
-  translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "off"),
+  translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "true") !== "false",
+  translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "high"),
   translateLiveBatches: [],
   translateLiveModel: null,
   aiBusyNoticeOpen: false
@@ -157,7 +157,7 @@ const state = {
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const DUPLICATE_AI_BATCH_SIZE = 40;
-const TRANSLATE_AI_BATCH_SIZE = 1;
+const TRANSLATE_AI_BATCH_SIZE = 3;
 const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
@@ -1971,12 +1971,12 @@ function syncTranslateAiControls() {
   }
   const thinkingSelect = $("translateAiThinkingSelect");
   if (thinkingSelect) {
-    thinkingSelect.value = "off";
-    thinkingSelect.disabled = true;
+    thinkingSelect.value = selectedReasoningValue(state.translateThinkingEnabled, state.translateReasoningEffort);
+    thinkingSelect.disabled = state.translateSending;
   }
   const note = $("translateAiModeNote");
   if (note) {
-    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, false, "off")} · תרגום תמיד ללא חשיבה (JSON יציב) · כרטיסיה אחת בכל פעם.</span>`;
+    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · JSON בלבד · ממתין לסיום התשובה לפני שמירה.</span>`;
     refreshIcons();
   }
   const runButton = $("runTranslateButton");
@@ -2183,7 +2183,7 @@ function parseTranslateResponse(response, places) {
   return result;
 }
 
-async function requestTranslateBatch(places, lang, batchIndex, { noThinking = true } = {}) {
+async function requestTranslateBatch(places, lang, batchIndex, { noThinking = false } = {}) {
   const thinkingEnabled = noThinking ? false : state.translateThinkingEnabled;
   const reasoningEffort = noThinking ? "off" : state.translateReasoningEffort;
   const idToken = await state.user.getIdToken();
@@ -2267,12 +2267,16 @@ function isTranslateBatchRetryableError(error) {
 
 async function requestTranslateBatchRobust(places, lang, batchIndex) {
   let lastError;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  try {
+    return await requestTranslateBatch(places, lang, batchIndex, { noThinking: false });
+  } catch (error) {
+    lastError = error;
+    if (!isTranslateBatchRetryableError(error)) throw error;
+  }
+  if (state.translateThinkingEnabled) {
     try {
-      if (attempt > 0) {
-        patchTranslateBatchLive(batchIndex, { answer: "", error: "", sending: true });
-        setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב (${attempt + 1}/2)...`);
-      }
+      patchTranslateBatchLive(batchIndex, { answer: "", error: "", sending: true });
+      setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב בלי מצב חשיבה...`);
       return await requestTranslateBatch(places, lang, batchIndex, { noThinking: true });
     } catch (error) {
       lastError = error;

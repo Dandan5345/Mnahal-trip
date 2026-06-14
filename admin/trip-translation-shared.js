@@ -605,8 +605,8 @@ export function createTranslationState(featureKey) {
     filter: "all",
     lang: "en",
     aiModel: storedAiPreference(featureKey, "model", "deepseek-v4-pro"),
-    thinkingEnabled: storedAiPreference(featureKey, "thinkingEnabled", "false") === "true",
-    reasoningEffort: storedAiPreference(featureKey, "reasoningEffort", "off"),
+    thinkingEnabled: storedAiPreference(featureKey, "thinkingEnabled", "true") !== "false",
+    reasoningEffort: storedAiPreference(featureKey, "reasoningEffort", "high"),
     liveReasoning: "",
     liveAnswer: "",
     liveModel: null
