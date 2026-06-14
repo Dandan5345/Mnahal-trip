@@ -293,6 +293,7 @@ function renderTranslateView() {
         entityLabel: "טיולים",
         loadLabel: "טען תבניות טיול",
         translateLabel: "תרגם נבחרים לאנגלית",
+        saveLabel: "שמור תרגומים מוכנים",
         aiModel: tr.aiModel,
         thinkingEnabled: tr.thinkingEnabled,
         reasoningEffort: tr.reasoningEffort
@@ -1841,6 +1842,7 @@ function bindTripTranslationActions() {
     $("tripTranslateLoadButton")?.addEventListener("click", loadTranslationTemplates);
     $("tripTranslateSelectAllButton")?.addEventListener("click", toggleAllTranslationTemplates);
     $("tripTranslateTranslateButton")?.addEventListener("click", runTripTranslations);
+    $("tripTranslateSaveButton")?.addEventListener("click", savePendingTripTranslations);
     $("tripTranslateSearchInput")?.addEventListener("input", (event) => {
         tr.search = event.target.value;
         renderTranslationTemplates();
@@ -1851,6 +1853,7 @@ function bindTripTranslationActions() {
         refreshIcons();
     });
     syncTranslationAiControls("tripTranslate", tr, tr.saving);
+    updateTripTranslationSaveButton();
 }
 
 function setTranslationStatus(message, isError = false) {
@@ -1870,7 +1873,9 @@ async function loadTranslationTemplates() {
             .filter((template) => template.assetLibrary !== true);
         tr.loaded = true;
         tr.selectedIds.clear();
+        tr.pendingTranslations = {};
         renderTranslationTemplates();
+        updateTripTranslationSaveButton();
         setTranslationStatus(`נטענו ${tr.templates.length} תבניות.`);
     } catch (error) {
         setTranslationStatus(`טעינה נכשלה: ${error.message}`, true);
@@ -1895,6 +1900,7 @@ function filteredTranslationTemplates() {
 
 function renderTranslationTemplates() {
     const tr = state.translation;
+    tr.pendingTranslations ||= {};
     const visible = filteredTranslationTemplates();
     if ($("tripTranslateLoadedPill")) $("tripTranslateLoadedPill").textContent = `${tr.templates.length} תבניות`;
     if ($("tripTranslateFilteredPill")) $("tripTranslateFilteredPill").textContent = `${visible.length} מוצגים`;
@@ -1908,7 +1914,7 @@ function renderTranslationTemplates() {
                     <input type="checkbox" data-translate-template-id="${escapeAttr(template.id)}" ${tr.selectedIds.has(template.id) ? "checked" : ""} />
                     בחירה
                 </label>
-                <div class="compact-card-meta">${translationBadge(template)}</div>
+                <div class="compact-card-meta">${translationBadge(template)}${tr.pendingTranslations[template.id] ? '<span class="count-pill" style="background:rgba(245,158,11,0.16);color:#b45309;border-color:rgba(245,158,11,0.45)">ממתין לשמירה</span>' : ""}</div>
                 <h3>${escapeHtml(template.name || "תבנית טיול")}</h3>
                 <p class="compact-card-summary">${escapeHtml(template.description || template.mainDestination || "")}</p>
                 <div class="compact-card-meta">
@@ -1927,6 +1933,7 @@ function renderTranslationTemplates() {
         });
     });
     refreshIcons();
+    updateTripTranslationSaveButton();
 }
 
 function toggleAllTranslationTemplates() {
@@ -1936,6 +1943,24 @@ function toggleAllTranslationTemplates() {
     tr.selectedIds.clear();
     if (!allSelected) visible.forEach((template) => tr.selectedIds.add(template.id));
     renderTranslationTemplates();
+}
+
+function pendingTripTranslationEntries() {
+    const tr = state.translation;
+    tr.pendingTranslations ||= {};
+    return Object.entries(tr.pendingTranslations).filter(([, translation]) => translation && typeof translation === "object");
+}
+
+function updateTripTranslationSaveButton() {
+    const tr = state.translation;
+    const button = $("tripTranslateSaveButton");
+    if (!button) return;
+    const count = pendingTripTranslationEntries().length;
+    button.disabled = tr.saving || count === 0;
+    button.innerHTML = tr.saving
+        ? `<i data-lucide="loader-circle" aria-hidden="true"></i><span>עובד...</span>`
+        : `<i data-lucide="save" aria-hidden="true"></i><span>שמור תרגומים מוכנים${count ? ` (${count})` : ""}</span>`;
+    refreshIcons();
 }
 
 function tripTranslationPayloadHasContent(payload, keys) {
@@ -2068,6 +2093,7 @@ async function runTripTranslations() {
         return;
     }
     const tr = state.translation;
+    tr.pendingTranslations ||= {};
     const selected = tr.templates.filter((template) => tr.selectedIds.has(template.id));
     if (!selected.length) {
         setTranslationStatus("בחר לפחות תבנית אחת.", true);
@@ -2075,20 +2101,21 @@ async function runTripTranslations() {
     }
     tr.saving = true;
     syncTranslationAiControls("tripTranslate", tr, true);
+    updateTripTranslationSaveButton();
     const failures = [];
-    let saved = 0;
+    let prepared = 0;
     try {
         for (const template of selected) {
-            setTranslationStatus(`מתרגם "${template.name || template.id}" (${saved + failures.length + 1}/${selected.length}) - לו״ז ומלונות/קישורים במקביל...`);
+            setTranslationStatus(`מתרגם "${template.name || template.id}" (${prepared + failures.length + 1}/${selected.length}) - לו״ז ומלונות/קישורים במקביל...`);
             tr.liveReasoning = "";
             tr.liveAnswer = "";
             tr.liveModel = null;
             renderTranslationLive(tr, "tripTranslate");
             try {
                 const translation = await translateTripTemplateInParts(template, tr);
-                await saveTemplateTranslation(state.firebase, template.id, "en", translation);
-                template.translations = { ...(template.translations || {}), en: translation };
-                saved += 1;
+                tr.pendingTranslations[template.id] = translation;
+                prepared += 1;
+                renderTranslationTemplates();
             } catch (error) {
                 failures.push(`${template.name || template.id}: ${error.message || String(error)}`);
             }
@@ -2096,14 +2123,60 @@ async function runTripTranslations() {
     } finally {
         tr.saving = false;
         syncTranslationAiControls("tripTranslate", tr, false);
+        updateTripTranslationSaveButton();
         renderTranslationTemplates();
     }
     setTranslationStatus(
         failures.length
-            ? `תורגמו ${saved} תבניות. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
-            : `תורגמו ונשמרו ${saved} תבניות ב-translations.en.`,
+            ? `הוכנו ${prepared} תרגומים לשמירה. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
+            : `הוכנו ${prepared} תרגומים. לחץ "שמור תרגומים מוכנים" כדי לשמור ב-translations.en.`,
         failures.length > 0
     );
+}
+
+async function savePendingTripTranslations() {
+    const tr = state.translation;
+    if (!state.user || !state.firebase) {
+        setTranslationStatus("צריך להתחבר לפני שמירה.", true);
+        return;
+    }
+    const entries = pendingTripTranslationEntries();
+    if (!entries.length) {
+        setTranslationStatus("אין תרגומים מוכנים לשמירה.", true);
+        return;
+    }
+    tr.saving = true;
+    syncTranslationAiControls("tripTranslate", tr, true);
+    updateTripTranslationSaveButton();
+    setTranslationStatus(`שומר ${entries.length} תרגומים ב-translations.en...`);
+    let saved = 0;
+    const failures = [];
+    try {
+        for (const [templateId, translation] of entries) {
+            const template = tr.templates.find((item) => item.id === templateId);
+            try {
+                await saveTemplateTranslation(state.firebase, templateId, "en", translation);
+                if (template) template.translations = { ...(template.translations || {}), en: translation };
+                delete tr.pendingTranslations[templateId];
+                saved += 1;
+                renderTranslationTemplates();
+            } catch (error) {
+                failures.push(`${template?.name || templateId}: ${error.message || String(error)}`);
+            }
+        }
+    } finally {
+        tr.saving = false;
+        syncTranslationAiControls("tripTranslate", tr, false);
+        updateTripTranslationSaveButton();
+        renderTranslationTemplates();
+    }
+    setTranslationStatus(
+        failures.length
+            ? `נשמרו ${saved} תרגומים. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
+            : `נשמרו ${saved} תרגומים ב-translations.en.`,
+        failures.length > 0
+    );
+    if (saved) showToast(`נשמרו ${saved} תרגומי טיולים.`);
 }
 
 function bindChatUi() {

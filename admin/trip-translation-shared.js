@@ -703,6 +703,7 @@ export function renderTranslationWorkspace({
   entityLabel,
   loadLabel,
   translateLabel,
+  saveLabel = "",
   aiModel,
   thinkingEnabled,
   reasoningEffort
@@ -745,7 +746,7 @@ export function renderTranslationWorkspace({
           <span class="panel-icon violet"><i data-lucide="sparkles" aria-hidden="true"></i></span>
           <div>
             <h2>תרגום עם AI</h2>
-            <p>כל ${escapeHtml(entityLabel)} נשלח כ-JSON מלא. התוצאה נשמרת ב-translations.en.</p>
+            <p>${saveLabel ? `כל ${escapeHtml(entityLabel)} נשלח ל-AI וממתין לאישור לפני שמירה.` : `כל ${escapeHtml(entityLabel)} נשלח כ-JSON מלא. התוצאה נשמרת ב-translations.en.`}</p>
           </div>
         </div>
         ${renderTranslationAiControls(prefix, aiModel, thinkingEnabled, reasoningEffort)}
@@ -753,6 +754,12 @@ export function renderTranslationWorkspace({
           <i data-lucide="languages" aria-hidden="true"></i>
           <span id="${prefix}TranslateButtonLabel">${escapeHtml(translateLabel)}</span>
         </button>
+        ${saveLabel ? `
+          <button class="ghost-action wide" type="button" id="${prefix}SaveButton" disabled>
+            <i data-lucide="save" aria-hidden="true"></i>
+            <span>${escapeHtml(saveLabel)}</span>
+          </button>
+        ` : ""}
         ${renderTranslationLivePanel(prefix)}
       </article>
     </div>
