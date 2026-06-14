@@ -2202,11 +2202,16 @@ async function runAiTranslate() {
         try {
           parsed = await requestTranslateBatch(batch, lang, index);
         } catch (error) {
+          // Empty *and* truncated ("Unterminated string"/"Unexpected end of JSON")
+          // both mean thinking ate the token budget before the JSON answer could
+          // finish. Retrying with thinking off gives the whole budget to content.
           const wasThinking = state.translateThinkingEnabled;
-          const empty = error?.emptyResponse || error?.aiError === "empty_content";
-          if (!wasThinking || !empty) throw error;
+          const starvedByThinking = error?.emptyResponse
+            || error?.aiError === "empty_content"
+            || error instanceof SyntaxError;
+          if (!wasThinking || !starvedByThinking) throw error;
           patchTranslateBatchLive(index, { reasoning: "", answer: "", error: "", sending: true });
-          setStatus("translateStatus", `מנה ${index + 1} חזרה ריקה — מנסה שוב בלי מצב חשיבה...`);
+          setStatus("translateStatus", `מנה ${index + 1} נקטעה — מנסה שוב בלי מצב חשיבה...`);
           parsed = await requestTranslateBatch(batch, lang, index, { noThinking: true });
         }
         readyCount += stageTranslatePending(parsed, lang);

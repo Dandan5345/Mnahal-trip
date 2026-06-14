@@ -196,49 +196,64 @@ export async function readDeepSeekResponse(response, handlers = {}) {
   let fullReasoning = "";
   let model = handlers.getFallbackModel?.() || "deepseek-v4-pro";
 
+  const handleEvent = (event) => {
+    if (event.error) {
+      const err = new Error(event.detail || event.error);
+      err.aiError = event.error;
+      throw err;
+    }
+    if (event.model) {
+      model = event.model;
+      handlers.onModel?.(model);
+    }
+    // The worker streams reasoning/content as reasoningDelta/contentDelta and
+    // sends the finished answer once as `text`. Accumulate the deltas (so a
+    // missing final `text` event still yields the full answer) and accept the
+    // legacy delta/reasoning keys for older worker builds.
+    const reasoningDelta = event.reasoningDelta ?? event.reasoning;
+    if (reasoningDelta) {
+      fullReasoning = appendLiveText(fullReasoning, reasoningDelta);
+      handlers.onReasoningDelta?.(reasoningDelta);
+    }
+    const contentDelta = event.contentDelta ?? event.delta;
+    if (contentDelta) {
+      fullText = appendLiveText(fullText, contentDelta);
+      handlers.onContentDelta?.(contentDelta);
+    }
+    if (event.text) {
+      fullText = event.text;
+      handlers.onText?.(fullText);
+    }
+    handlers.render?.();
+  };
+
+  const processPart = (part) => {
+    const lines = part.split("\n").filter(Boolean);
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === "[DONE]") continue;
+      let event;
+      try {
+        event = JSON.parse(raw);
+      } catch (_) {
+        continue;
+      }
+      handleEvent(event);
+    }
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const parts = buffer.split("\n\n");
     buffer = parts.pop() || "";
-    for (const part of parts) {
-      const lines = part.split("\n").filter(Boolean);
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const raw = line.slice(5).trim();
-        if (!raw || raw === "[DONE]") continue;
-        let event;
-        try {
-          event = JSON.parse(raw);
-        } catch (_) {
-          continue;
-        }
-        if (event.error) {
-          const err = new Error(event.detail || event.error);
-          err.aiError = event.error;
-          throw err;
-        }
-        if (event.model) {
-          model = event.model;
-          handlers.onModel?.(model);
-        }
-        if (event.reasoning) {
-          fullReasoning = appendLiveText(fullReasoning, event.reasoning);
-          handlers.onReasoningDelta?.(event.reasoning);
-        }
-        if (event.text) {
-          fullText = event.text;
-          handlers.onText?.(fullText);
-        }
-        if (event.delta) {
-          fullText = appendLiveText(fullText, event.delta);
-          handlers.onContentDelta?.(event.delta);
-        }
-        handlers.render?.();
-      }
-    }
+    for (const part of parts) processPart(part);
   }
+  // Flush the trailing buffer — the final `text` event can land in the last
+  // chunk without a closing blank line, and dropping it truncates the answer.
+  if (buffer.trim()) processPart(buffer);
 
   return { model, text: fullText, reasoning: fullReasoning };
 }
