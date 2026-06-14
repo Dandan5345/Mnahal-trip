@@ -1583,6 +1583,21 @@ svg {
     border-color: rgba(20, 124, 114, 0.18);
 }
 
+.place-card.is-translated {
+    border: 2px solid var(--green);
+    box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.18);
+}
+
+.translate-live-stack {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.translate-live-stack.is-hidden {
+    display: none;
+}
+
 .place-image {
     position: relative;
     aspect-ratio: 16 / 9;
