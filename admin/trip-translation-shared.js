@@ -50,6 +50,59 @@ The ONLY allowed output shape:
 Include only sections present in the input payload.
 `.trim();
 
+export const TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT = `
+You translate the itinerary part of TripTap trip templates from Hebrew to English for a travel app.
+Return valid JSON only. No markdown, no commentary, no extra keys.
+
+Rules:
+- Translate ONLY user-facing free-text fields. Keep ids, numbers, urls, coords, booleans, enums, category keys, reservation enums, and provider names unchanged.
+- Preserve the exact structure and array lengths from the input.
+- Every nested object must keep the same id / dayNumber / order as the input.
+- Write natural English for tourists. Keep place names recognizable; add English in parentheses when helpful.
+- Do NOT translate URLs, image urls, coordinates, or machine keys.
+- If a field is empty or missing in Hebrew, return it empty.
+
+The ONLY allowed output shape:
+{
+  "target_lang": "en",
+  "translation": {
+    "name": "...",
+    "description": "...",
+    "mainDestination": "...",
+    "country": "...",
+    "city": "...",
+    "schedule": [...],
+    "places": [...]
+  }
+}
+
+Include only sections present in the input payload.
+`.trim();
+
+export const TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT = `
+You translate TripTap hotel recommendations and attraction booking links from Hebrew to English.
+Return valid JSON only. No markdown, no commentary, no extra keys.
+
+Rules:
+- Keep ids, placeId, provider, urls, coords, image fields, starRating, booleans, and numeric ratings unchanged.
+- Translate hotelName, destination, address, summary, breakfast, kosher/shabbat reasons, notes, locationRating, bookingRatingText, googleRatingText.
+- Translate booking placeTitle, title, summary, priceRange, destination.
+- Preserve array length and ids exactly.
+- For priceRange keep currency symbols and numbers; translate words like "לאדם" to "per person".
+- For rating text like "לא נמצא" translate to "Not found".
+
+The ONLY allowed output shape:
+{
+  "target_lang": "en",
+  "translation": {
+    "hotels": [...],
+    "bookingLinks": [...]
+  }
+}
+
+Include only sections present in the input payload. Use name and mainDestination only as context; do not include them in the output.
+`.trim();
+
 export const HOTELS_TRANSLATION_SYSTEM_PROMPT = `
 You translate TripTap hotel recommendations from Hebrew to English.
 Return valid JSON only. No markdown.
@@ -424,6 +477,36 @@ export function buildTripTranslationPayload(template) {
       items: (day?.items || []).map(scheduleItemPayload)
     })),
     places: (template?.places || []).map(placePayload),
+    hotels: (template?.hotels || []).map(hotelPayload),
+    bookingLinks: (template?.bookingLinks || []).map(bookingPayload)
+  };
+}
+
+export function buildTripScheduleTranslationPayload(template) {
+  return {
+    template_id: text(template?.id),
+    target_lang: "en",
+    name: text(template?.name),
+    description: text(template?.description),
+    mainDestination: text(template?.mainDestination),
+    country: text(template?.country),
+    city: text(template?.city),
+    schedule: (template?.schedule || []).map((day) => ({
+      dayNumber: Number(day?.dayNumber || 0),
+      title: text(day?.title),
+      dayTips: Array.isArray(day?.dayTips) ? day.dayTips.map((tip) => text(tip)).filter(Boolean) : [],
+      items: (day?.items || []).map(scheduleItemPayload)
+    })),
+    places: (template?.places || []).map(placePayload)
+  };
+}
+
+export function buildTripCommerceTranslationPayload(template) {
+  return {
+    template_id: text(template?.id),
+    target_lang: "en",
+    name: text(template?.name),
+    mainDestination: text(template?.mainDestination),
     hotels: (template?.hotels || []).map(hotelPayload),
     bookingLinks: (template?.bookingLinks || []).map(bookingPayload)
   };

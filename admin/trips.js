@@ -18,8 +18,10 @@ import {
     debounce
 } from "./shared.js";
 import {
-    TRIP_TRANSLATION_SYSTEM_PROMPT,
-    buildTripTranslationPayload,
+    TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT,
+    TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT,
+    buildTripScheduleTranslationPayload,
+    buildTripCommerceTranslationPayload,
     createTranslationState,
     renderTranslationWorkspace,
     syncTranslationAiControls,
@@ -1936,6 +1938,130 @@ function toggleAllTranslationTemplates() {
     renderTranslationTemplates();
 }
 
+function tripTranslationPayloadHasContent(payload, keys) {
+    return keys.some((key) => {
+        const value = payload?.[key];
+        if (Array.isArray(value)) return value.length > 0;
+        return text(value).length > 0;
+    });
+}
+
+function renderTripTranslationPartLive(tr, liveParts) {
+    const parts = Object.values(liveParts);
+    tr.liveReasoning = parts
+        .map((part) => part.reasoning ? `[${part.label}]\n${part.reasoning}` : "")
+        .filter(Boolean)
+        .join("\n\n");
+    tr.liveAnswer = parts
+        .map((part) => part.answer ? `[${part.label}]\n${part.answer}` : "")
+        .filter(Boolean)
+        .join("\n\n");
+    tr.liveModel = parts.find((part) => part.model)?.model || tr.liveModel;
+    renderTranslationLive(tr, "tripTranslate");
+}
+
+function tripTranslationPartHandlers(tr, liveParts, key, label) {
+    const part = liveParts[key] || { label, reasoning: "", answer: "", model: null };
+    liveParts[key] = part;
+    return {
+        getFallbackModel: () => tr.aiModel,
+        onModel: (model) => {
+            part.model = model;
+            renderTripTranslationPartLive(tr, liveParts);
+        },
+        onReasoningDelta: (delta) => {
+            part.reasoning += delta || "";
+            renderTripTranslationPartLive(tr, liveParts);
+        },
+        onContentDelta: (delta) => {
+            part.answer += delta || "";
+            renderTripTranslationPartLive(tr, liveParts);
+        },
+        onText: (value) => {
+            part.answer = value || "";
+            renderTripTranslationPartLive(tr, liveParts);
+        },
+        render: () => renderTripTranslationPartLive(tr, liveParts)
+    };
+}
+
+function isTripTranslationRetryableError(error) {
+    const message = error?.message || String(error || "");
+    return Boolean(
+        error?.aiError === "empty_content"
+        || error?.aiError === "reasoning_stalled"
+        || error instanceof SyntaxError
+        || error?.name === "SyntaxError"
+        || /תשובה ריקה|Unexpected end of JSON input|Unterminated string|JSON/i.test(message)
+    );
+}
+
+async function requestTripTranslationPart({
+    tr,
+    key,
+    label,
+    liveParts,
+    systemPrompt,
+    payload,
+    noThinking = false
+}) {
+    const response = await requestTripTranslation({
+        user: state.user,
+        systemPrompt,
+        payload,
+        aiModel: tr.aiModel,
+        thinkingEnabled: noThinking ? false : tr.thinkingEnabled,
+        reasoningEffort: noThinking ? "off" : tr.reasoningEffort,
+        handlers: tripTranslationPartHandlers(tr, liveParts, key, label)
+    });
+    const part = liveParts[key];
+    return parseTranslationResponse(response.text || part?.answer || "");
+}
+
+async function requestTripTranslationPartRobust(args) {
+    try {
+        return await requestTripTranslationPart(args);
+    } catch (error) {
+        if (!args.tr.thinkingEnabled || !isTripTranslationRetryableError(error)) throw error;
+        setTranslationStatus(`${args.label} נקטע או חזר ריק - מנסה שוב ללא מצב חשיבה...`);
+        args.liveParts[args.key] = { label: args.label, reasoning: "", answer: "", model: null };
+        renderTripTranslationPartLive(args.tr, args.liveParts);
+        return requestTripTranslationPart({ ...args, noThinking: true });
+    }
+}
+
+async function translateTripTemplateInParts(template, tr) {
+    const itineraryPayload = buildTripScheduleTranslationPayload(template);
+    const commercePayload = buildTripCommerceTranslationPayload(template);
+    const liveParts = {};
+    const tasks = [];
+
+    if (tripTranslationPayloadHasContent(itineraryPayload, ["name", "description", "mainDestination", "country", "city", "schedule", "places"])) {
+        tasks.push(requestTripTranslationPartRobust({
+            tr,
+            key: "itinerary",
+            label: "לו״ז ומקומות",
+            liveParts,
+            systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT,
+            payload: itineraryPayload
+        }));
+    }
+
+    if (tripTranslationPayloadHasContent(commercePayload, ["hotels", "bookingLinks"])) {
+        tasks.push(requestTripTranslationPartRobust({
+            tr,
+            key: "commerce",
+            label: "מלונות וקישורי הזמנה",
+            liveParts,
+            systemPrompt: TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT,
+            payload: commercePayload
+        }));
+    }
+
+    const translations = await Promise.all(tasks);
+    return Object.assign({}, ...translations);
+}
+
 async function runTripTranslations() {
     if (!state.user || !state.firebase) {
         setTranslationStatus("צריך להתחבר לפני תרגום.", true);
@@ -1953,30 +2079,13 @@ async function runTripTranslations() {
     let saved = 0;
     try {
         for (const template of selected) {
-            setTranslationStatus(`מתרגם "${template.name || template.id}" (${saved + failures.length + 1}/${selected.length})...`);
+            setTranslationStatus(`מתרגם "${template.name || template.id}" (${saved + failures.length + 1}/${selected.length}) - לו״ז ומלונות/קישורים במקביל...`);
             tr.liveReasoning = "";
             tr.liveAnswer = "";
             tr.liveModel = null;
             renderTranslationLive(tr, "tripTranslate");
             try {
-                const payload = buildTripTranslationPayload(template);
-                const response = await requestTripTranslation({
-                    user: state.user,
-                    systemPrompt: TRIP_TRANSLATION_SYSTEM_PROMPT,
-                    payload,
-                    aiModel: tr.aiModel,
-                    thinkingEnabled: tr.thinkingEnabled,
-                    reasoningEffort: tr.reasoningEffort,
-                    handlers: {
-                        getFallbackModel: () => tr.aiModel,
-                        onModel: (model) => { tr.liveModel = model; },
-                        onReasoningDelta: (delta) => { tr.liveReasoning += delta || ""; renderTranslationLive(tr, "tripTranslate"); },
-                        onContentDelta: (delta) => { tr.liveAnswer += delta || ""; renderTranslationLive(tr, "tripTranslate"); },
-                        onText: (value) => { tr.liveAnswer = value; renderTranslationLive(tr, "tripTranslate"); },
-                        render: () => renderTranslationLive(tr, "tripTranslate")
-                    }
-                });
-                const translation = parseTranslationResponse(response.text || tr.liveAnswer);
+                const translation = await translateTripTemplateInParts(template, tr);
                 await saveTemplateTranslation(state.firebase, template.id, "en", translation);
                 template.translations = { ...(template.translations || {}), en: translation };
                 saved += 1;
