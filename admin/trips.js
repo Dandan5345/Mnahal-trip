@@ -17,6 +17,19 @@ import {
     cleanBookingUrl,
     debounce
 } from "./shared.js";
+import {
+    TRIP_TRANSLATION_SYSTEM_PROMPT,
+    buildTripTranslationPayload,
+    createTranslationState,
+    renderTranslationWorkspace,
+    syncTranslationAiControls,
+    bindTranslationAiControls,
+    renderTranslationLive,
+    requestTripTranslation,
+    parseTranslationResponse,
+    saveTemplateTranslation,
+    translationBadge
+} from "./trip-translation-shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
 const DEEPSEEK_ENDPOINT = `${WORKFLOW_URL}/deepseek`;
@@ -83,7 +96,8 @@ const state = {
     heroImageUrl: null,
     heroPhotographerName: null,
     heroPhotographerUsername: null,
-    chat: null
+    chat: null,
+    translation: createTranslationState("trips-translate")
 };
 
 function createChatState(dayIndex) {
@@ -235,16 +249,21 @@ renderPage();
 function renderPage() {
     state.view = normalizeView(resolveAdminView("compose"));
     state.composeSection = normalizeComposeSection(resolveAdminStep("builder"));
+    const titles = {
+        compose: {
+            title: state.lastSavedId && state.parsedTemplate?.tripTitle ? `עריכת טיול: ${state.parsedTemplate.tripTitle}` : "יצירת טיול",
+            subtitle: state.lastSavedId ? "עריכה מלאה של כל שלבי הטיול — לו״ז, מלונות, קישורים ושמירה." : "מקומות, prompt, JSON ושמירה."
+        },
+        manage: { title: "טיולים מצב נוכחי", subtitle: "חיפוש, טעינה, עריכה ומחיקה." },
+        translate: { title: "תרגום טיולים", subtitle: "שליחת תבנית מלאה ל-AI ושמירת translations.en." }
+    };
+    const viewMeta = titles[state.view] || titles.compose;
     document.getElementById("app").innerHTML = createAdminShell({
         activeKey: "trips",
         activeSubKey: state.view,
-        title: state.view === "compose"
-            ? (state.lastSavedId && state.parsedTemplate?.tripTitle ? `עריכת טיול: ${state.parsedTemplate.tripTitle}` : "יצירת טיול")
-            : "טיולים מצב נוכחי",
-        subtitle: state.view === "compose"
-            ? (state.lastSavedId ? "עריכה מלאה של כל שלבי הטיול — לו״ז, מלונות, קישורים ושמירה." : "מקומות, prompt, JSON ושמירה.")
-            : "חיפוש, טעינה, עריכה ומחיקה.",
-        content: `${state.view === "compose" ? renderComposeView() : renderManageView()}${renderTemplateEditDialog()}${renderHotelEditDialog()}${renderBookingEditDialog()}${renderRecommendationDetailDialog()}${renderRecommendationImageDialog()}${renderChatSetupDialog()}${renderChatDialog()}${renderChatPlacesDialog()}${renderChatAttachReviewDialog()}${renderChatDiffDialog()}${renderLoadingOverlay()}${renderToastContainer()}`
+        title: viewMeta.title,
+        subtitle: viewMeta.subtitle,
+        content: `${state.view === "compose" ? renderComposeView() : state.view === "translate" ? renderTranslateView() : renderManageView()}${renderTemplateEditDialog()}${renderHotelEditDialog()}${renderBookingEditDialog()}${renderRecommendationDetailDialog()}${renderRecommendationImageDialog()}${renderChatSetupDialog()}${renderChatDialog()}${renderChatPlacesDialog()}${renderChatAttachReviewDialog()}${renderChatDiffDialog()}${renderLoadingOverlay()}${renderToastContainer()}`
     });
 
     attachSharedUi({
@@ -259,7 +278,20 @@ function renderPage() {
 }
 
 function normalizeView(view) {
-    return ["compose", "manage"].includes(view) ? view : "compose";
+    return ["compose", "manage", "translate"].includes(view) ? view : "compose";
+}
+
+function renderTranslateView() {
+    const tr = state.translation;
+    return renderTranslationWorkspace({
+        prefix: "tripTranslate",
+        entityLabel: "טיולים",
+        loadLabel: "טען תבניות טיול",
+        translateLabel: "תרגם נבחרים לאנגלית",
+        aiModel: tr.aiModel,
+        thinkingEnabled: tr.thinkingEnabled,
+        reasoningEffort: tr.reasoningEffort
+    });
 }
 
 function normalizeComposeSection(section) {
@@ -1739,6 +1771,7 @@ function init() {
         message: "יש לך טיול או עריכה שלא נשמרו. לצאת מהעמוד בלי לשמור?"
     });
     if (state.view === "manage") loadTemplates();
+    if (state.view === "translate") loadTranslationTemplates();
     if (state.view === "compose" && state.parsedTemplate && state.lastSavedId) {
         populateComposeUiFromState();
         if (state.justLoadedForEdit) {
@@ -1794,6 +1827,168 @@ function bindActions() {
     $("deleteTemplateButton")?.addEventListener("click", deleteEditingTemplate);
     bindRecommendationImageDialog();
     bindChatUi();
+    bindTripTranslationActions();
+}
+
+function bindTripTranslationActions() {
+    if (state.view !== "translate") return;
+    const tr = state.translation;
+    $("tripTranslateLoadButton")?.addEventListener("click", loadTranslationTemplates);
+    $("tripTranslateSelectAllButton")?.addEventListener("click", toggleAllTranslationTemplates);
+    $("tripTranslateTranslateButton")?.addEventListener("click", runTripTranslations);
+    $("tripTranslateSearchInput")?.addEventListener("input", (event) => {
+        tr.search = event.target.value;
+        renderTranslationTemplates();
+    });
+    bindTranslationAiControls("tripTranslate", tr, () => {
+        syncTranslationAiControls("tripTranslate", tr, tr.saving);
+        refreshIcons();
+    });
+    syncTranslationAiControls("tripTranslate", tr, tr.saving);
+}
+
+function setTranslationStatus(message, isError = false) {
+    setStatus("tripTranslateStatus", message, isError);
+}
+
+async function loadTranslationTemplates() {
+    if (!state.firebase) return;
+    const tr = state.translation;
+    tr.loading = true;
+    setTranslationStatus("טוען תבניות טיול...");
+    try {
+        const fs = state.firebase.firestore;
+        const snap = await fs.getDocs(fs.collection(state.firebase.db, "trip_templates"));
+        tr.templates = snap.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .filter((template) => template.assetLibrary !== true);
+        tr.loaded = true;
+        tr.selectedIds.clear();
+        renderTranslationTemplates();
+        setTranslationStatus(`נטענו ${tr.templates.length} תבניות.`);
+    } catch (error) {
+        setTranslationStatus(`טעינה נכשלה: ${error.message}`, true);
+    } finally {
+        tr.loading = false;
+    }
+}
+
+function filteredTranslationTemplates() {
+    const tr = state.translation;
+    const query = normalize(tr.search);
+    if (!query) return tr.templates;
+    return tr.templates.filter((template) => [
+        template.name,
+        template.mainDestination,
+        template.city,
+        template.country,
+        ...(template.keywords || [])
+    ].map(normalize).some((value) => value.includes(query)));
+}
+
+function renderTranslationTemplates() {
+    const tr = state.translation;
+    const visible = filteredTranslationTemplates();
+    if ($("tripTranslateLoadedPill")) $("tripTranslateLoadedPill").textContent = `${tr.templates.length} תבניות`;
+    if ($("tripTranslateSelectedPill")) $("tripTranslateSelectedPill").textContent = `${tr.selectedIds.size} מסומנים`;
+    const container = $("tripTranslateCards");
+    if (!container) return;
+    container.innerHTML = visible.map((template) => `
+        <article class="place-card current-place-card">
+            <div class="place-body">
+                <label class="check-row">
+                    <input type="checkbox" data-translate-template-id="${escapeAttr(template.id)}" ${tr.selectedIds.has(template.id) ? "checked" : ""} />
+                    בחירה
+                </label>
+                <div class="compact-card-meta">${translationBadge(template)}</div>
+                <h3>${escapeHtml(template.name || "תבנית טיול")}</h3>
+                <p class="compact-card-summary">${escapeHtml(template.description || template.mainDestination || "")}</p>
+                <div class="compact-card-meta">
+                    <span>${escapeHtml(template.mainDestination || "")}</span>
+                    <span>${Number(template.days || 0)} ימים</span>
+                    <span>${Number((template.schedule || []).length)} ימים בלו״ז</span>
+                </div>
+            </div>
+        </article>
+    `).join("") || emptyHtml("אין תבניות לתרגום.");
+    container.querySelectorAll("[data-translate-template-id]").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+            const id = checkbox.dataset.translateTemplateId;
+            checkbox.checked ? tr.selectedIds.add(id) : tr.selectedIds.delete(id);
+            renderTranslationTemplates();
+        });
+    });
+    refreshIcons();
+}
+
+function toggleAllTranslationTemplates() {
+    const tr = state.translation;
+    const visible = filteredTranslationTemplates();
+    const allSelected = visible.length > 0 && visible.every((template) => tr.selectedIds.has(template.id));
+    tr.selectedIds.clear();
+    if (!allSelected) visible.forEach((template) => tr.selectedIds.add(template.id));
+    renderTranslationTemplates();
+}
+
+async function runTripTranslations() {
+    if (!state.user || !state.firebase) {
+        setTranslationStatus("צריך להתחבר לפני תרגום.", true);
+        return;
+    }
+    const tr = state.translation;
+    const selected = tr.templates.filter((template) => tr.selectedIds.has(template.id));
+    if (!selected.length) {
+        setTranslationStatus("בחר לפחות תבנית אחת.", true);
+        return;
+    }
+    tr.saving = true;
+    syncTranslationAiControls("tripTranslate", tr, true);
+    const failures = [];
+    let saved = 0;
+    try {
+        for (const template of selected) {
+            setTranslationStatus(`מתרגם "${template.name || template.id}" (${saved + failures.length + 1}/${selected.length})...`);
+            tr.liveReasoning = "";
+            tr.liveAnswer = "";
+            tr.liveModel = null;
+            renderTranslationLive(tr, "tripTranslate");
+            try {
+                const payload = buildTripTranslationPayload(template);
+                const response = await requestTripTranslation({
+                    user: state.user,
+                    systemPrompt: TRIP_TRANSLATION_SYSTEM_PROMPT,
+                    payload,
+                    aiModel: tr.aiModel,
+                    thinkingEnabled: tr.thinkingEnabled,
+                    reasoningEffort: tr.reasoningEffort,
+                    handlers: {
+                        getFallbackModel: () => tr.aiModel,
+                        onModel: (model) => { tr.liveModel = model; },
+                        onReasoningDelta: (delta) => { tr.liveReasoning += delta || ""; renderTranslationLive(tr, "tripTranslate"); },
+                        onContentDelta: (delta) => { tr.liveAnswer += delta || ""; renderTranslationLive(tr, "tripTranslate"); },
+                        onText: (value) => { tr.liveAnswer = value; renderTranslationLive(tr, "tripTranslate"); },
+                        render: () => renderTranslationLive(tr, "tripTranslate")
+                    }
+                });
+                const translation = parseTranslationResponse(response.text || tr.liveAnswer);
+                await saveTemplateTranslation(state.firebase, template.id, "en", translation);
+                template.translations = { ...(template.translations || {}), en: translation };
+                saved += 1;
+            } catch (error) {
+                failures.push(`${template.name || template.id}: ${error.message || String(error)}`);
+            }
+        }
+    } finally {
+        tr.saving = false;
+        syncTranslationAiControls("tripTranslate", tr, false);
+        renderTranslationTemplates();
+    }
+    setTranslationStatus(
+        failures.length
+            ? `תורגמו ${saved} תבניות. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
+            : `תורגמו ונשמרו ${saved} תבניות ב-translations.en.`,
+        failures.length > 0
+    );
 }
 
 function bindChatUi() {

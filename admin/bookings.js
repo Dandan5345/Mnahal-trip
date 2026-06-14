@@ -15,6 +15,19 @@ import {
     debounce
 } from "./shared.js";
 import { createLinkFixer } from "./link-fixer.js";
+import {
+    BOOKINGS_TRANSLATION_SYSTEM_PROMPT,
+    buildBookingsTranslationPayload,
+    createTranslationState,
+    renderTranslationWorkspace,
+    syncTranslationAiControls,
+    bindTranslationAiControls,
+    renderTranslationLive,
+    requestTripTranslation,
+    parseTranslationResponse,
+    saveTemplateTranslation,
+    translationBadge
+} from "./trip-translation-shared.js";
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const BOOKING_LINK_R2_FOLDER = "link_img";
@@ -35,7 +48,8 @@ const state = {
     imageSource: "pixabay",
     linkDraftId: null,
     linkCandidates: [],
-    linkQuery: ""
+    linkQuery: "",
+    translation: createTranslationState("bookings-translate")
 };
 
 const $ = (id) => document.getElementById(id);
@@ -55,11 +69,29 @@ const BOOKINGS_VIEW_CONFIG = {
         title: "תיקון קישורים",
         subtitle: "אטרקציות עם קישור הזמנה ריק או לא תקין.",
         actions: ""
+    },
+    translate: {
+        title: "תרגום קישורי הזמנות",
+        subtitle: "שליחת קישורי אטרקציות ל-AI ושמירת translations.en.",
+        actions: ""
     }
 };
 
 function normalizeBookingsView(view) {
     return Object.prototype.hasOwnProperty.call(BOOKINGS_VIEW_CONFIG, view) ? view : "compose";
+}
+
+function renderTranslateView() {
+    const tr = state.translation;
+    return renderTranslationWorkspace({
+        prefix: "bookingTranslate",
+        entityLabel: "קישורי הזמנות",
+        loadLabel: "טען תבניות עם קישורים",
+        translateLabel: "תרגם קישורים נבחרים לאנגלית",
+        aiModel: tr.aiModel,
+        thinkingEnabled: tr.thinkingEnabled,
+        reasoningEffort: tr.reasoningEffort
+    });
 }
 
 renderPage();
@@ -74,7 +106,7 @@ function renderPage() {
         subtitle: viewConfig.subtitle,
         actions: viewConfig.actions,
         content: `
-            ${state.view === "compose" ? renderBookingComposeView() : state.view === "fix-links" ? renderBookingFixLinksView() : renderBookingManageView()}
+            ${state.view === "compose" ? renderBookingComposeView() : state.view === "translate" ? renderTranslateView() : state.view === "fix-links" ? renderBookingFixLinksView() : renderBookingManageView()}
 
       <dialog class="image-dialog" id="bookingImageDialog">
         <form method="dialog" class="image-dialog-shell">
@@ -307,6 +339,7 @@ function init() {
     bindDestinationSearch();
     bindActions();
     if (state.view === "manage") loadAllSavedBookings();
+    if (state.view === "translate") loadBookingTranslationTemplates();
     renderDrafts();
     refreshIcons();
 }
@@ -407,6 +440,172 @@ function bindActions() {
         state.linkQuery = event.target.value;
         debouncedLinkCandidates();
     });
+    bindBookingTranslationActions();
+}
+
+function bindBookingTranslationActions() {
+    if (state.view !== "translate") return;
+    const tr = state.translation;
+    $("bookingTranslateLoadButton")?.addEventListener("click", loadBookingTranslationTemplates);
+    $("bookingTranslateSelectAllButton")?.addEventListener("click", toggleAllBookingTranslationTemplates);
+    $("bookingTranslateTranslateButton")?.addEventListener("click", runBookingTranslations);
+    $("bookingTranslateSearchInput")?.addEventListener("input", (event) => {
+        tr.search = event.target.value;
+        renderBookingTranslationTemplates();
+    });
+    bindTranslationAiControls("bookingTranslate", tr, () => {
+        syncTranslationAiControls("bookingTranslate", tr, tr.saving);
+        refreshIcons();
+    });
+    syncTranslationAiControls("bookingTranslate", tr, tr.saving);
+}
+
+function setBookingTranslationStatus(message, isError = false) {
+    setStatus("bookingTranslateStatus", message, isError);
+}
+
+async function loadBookingTranslationTemplates() {
+    if (!state.firebase) return;
+    const tr = state.translation;
+    tr.loading = true;
+    setBookingTranslationStatus("טוען תבניות עם קישורי הזמנה...");
+    try {
+        const fs = state.firebase.firestore;
+        const snap = await fs.getDocs(fs.collection(state.firebase.db, "trip_templates"));
+        tr.templates = snap.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .filter((template) => Array.isArray(template.bookingLinks) && template.bookingLinks.length > 0);
+        tr.loaded = true;
+        tr.selectedIds.clear();
+        renderBookingTranslationTemplates();
+        setBookingTranslationStatus(`נטענו ${tr.templates.length} תבניות עם קישורים.`);
+    } catch (error) {
+        setBookingTranslationStatus(`טעינה נכשלה: ${error.message}`, true);
+    } finally {
+        tr.loading = false;
+    }
+}
+
+function filteredBookingTranslationTemplates() {
+    const tr = state.translation;
+    const query = normalize(tr.search);
+    if (!query) return tr.templates;
+    return tr.templates.filter((template) => [
+        template.name,
+        template.mainDestination,
+        ...(template.bookingLinks || []).flatMap((booking) => [booking.title, booking.placeTitle, booking.summary])
+    ].map(normalize).some((value) => value.includes(query)));
+}
+
+function renderBookingTranslationTemplates() {
+    const tr = state.translation;
+    const visible = filteredBookingTranslationTemplates();
+    if ($("bookingTranslateLoadedPill")) $("bookingTranslateLoadedPill").textContent = `${tr.templates.length} תבניות`;
+    if ($("bookingTranslateSelectedPill")) $("bookingTranslateSelectedPill").textContent = `${tr.selectedIds.size} מסומנים`;
+    const container = $("bookingTranslateCards");
+    if (!container) return;
+    container.innerHTML = visible.map((template) => `
+        <article class="place-card current-place-card">
+            <div class="place-body">
+                <label class="check-row">
+                    <input type="checkbox" data-translate-template-id="${escapeAttr(template.id)}" ${tr.selectedIds.has(template.id) ? "checked" : ""} />
+                    בחירה
+                </label>
+                <div class="compact-card-meta">${translationBadge(template)}</div>
+                <h3>${escapeHtml(template.name || template.mainDestination || "ספריית קישורים")}</h3>
+                <p class="compact-card-summary">${escapeHtml(template.mainDestination || "")}</p>
+                <div class="compact-card-meta">
+                    <span>${Number((template.bookingLinks || []).length)} קישורים</span>
+                    <span>${template.assetLibrary ? "ספריית נכסים" : "מתוך טיול"}</span>
+                </div>
+            </div>
+        </article>
+    `).join("") || emptyHtml("אין תבניות עם קישורי הזמנה.");
+    container.querySelectorAll("[data-translate-template-id]").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+            const id = checkbox.dataset.translateTemplateId;
+            checkbox.checked ? tr.selectedIds.add(id) : tr.selectedIds.delete(id);
+            renderBookingTranslationTemplates();
+        });
+    });
+    refreshIcons();
+}
+
+function toggleAllBookingTranslationTemplates() {
+    const tr = state.translation;
+    const visible = filteredBookingTranslationTemplates();
+    const allSelected = visible.length > 0 && visible.every((template) => tr.selectedIds.has(template.id));
+    tr.selectedIds.clear();
+    if (!allSelected) visible.forEach((template) => tr.selectedIds.add(template.id));
+    renderBookingTranslationTemplates();
+}
+
+async function runBookingTranslations() {
+    if (!state.user || !state.firebase) {
+        setBookingTranslationStatus("צריך להתחבר לפני תרגום.", true);
+        return;
+    }
+    const tr = state.translation;
+    const selected = tr.templates.filter((template) => tr.selectedIds.has(template.id));
+    if (!selected.length) {
+        setBookingTranslationStatus("בחר לפחות תבנית אחת.", true);
+        return;
+    }
+    tr.saving = true;
+    syncTranslationAiControls("bookingTranslate", tr, true);
+    const failures = [];
+    let saved = 0;
+    try {
+        for (const template of selected) {
+            setBookingTranslationStatus(`מתרגם קישורים של "${template.name || template.id}" (${saved + failures.length + 1}/${selected.length})...`);
+            tr.liveReasoning = "";
+            tr.liveAnswer = "";
+            tr.liveModel = null;
+            renderTranslationLive(tr, "bookingTranslate");
+            try {
+                const payload = buildBookingsTranslationPayload(template);
+                const response = await requestTripTranslation({
+                    user: state.user,
+                    systemPrompt: BOOKINGS_TRANSLATION_SYSTEM_PROMPT,
+                    payload,
+                    aiModel: tr.aiModel,
+                    thinkingEnabled: tr.thinkingEnabled,
+                    reasoningEffort: tr.reasoningEffort,
+                    handlers: {
+                        getFallbackModel: () => tr.aiModel,
+                        onModel: (model) => { tr.liveModel = model; },
+                        onReasoningDelta: (delta) => { tr.liveReasoning += delta || ""; renderTranslationLive(tr, "bookingTranslate"); },
+                        onContentDelta: (delta) => { tr.liveAnswer += delta || ""; renderTranslationLive(tr, "bookingTranslate"); },
+                        onText: (value) => { tr.liveAnswer = value; renderTranslationLive(tr, "bookingTranslate"); },
+                        render: () => renderTranslationLive(tr, "bookingTranslate")
+                    }
+                });
+                const partial = parseTranslationResponse(response.text || tr.liveAnswer);
+                const existing = template.translations?.en || {};
+                const translation = {
+                    ...existing,
+                    ...(partial.name ? { name: partial.name } : {}),
+                    ...(partial.mainDestination ? { mainDestination: partial.mainDestination } : {}),
+                    bookingLinks: partial.bookingLinks || []
+                };
+                await saveTemplateTranslation(state.firebase, template.id, "en", translation);
+                template.translations = { ...(template.translations || {}), en: translation };
+                saved += 1;
+            } catch (error) {
+                failures.push(`${template.name || template.id}: ${error.message || String(error)}`);
+            }
+        }
+    } finally {
+        tr.saving = false;
+        syncTranslationAiControls("bookingTranslate", tr, false);
+        renderBookingTranslationTemplates();
+    }
+    setBookingTranslationStatus(
+        failures.length
+            ? `תורגמו ${saved} תבניות. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
+            : `תורגמו ונשמרו ${saved} תבניות ב-translations.en.bookingLinks.`,
+        failures.length > 0
+    );
 }
 
 function bindDestinationSearch() {

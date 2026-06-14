@@ -15,6 +15,19 @@ import {
     debounce
 } from "./shared.js";
 import { createLinkFixer } from "./link-fixer.js";
+import {
+    HOTELS_TRANSLATION_SYSTEM_PROMPT,
+    buildHotelsTranslationPayload,
+    createTranslationState,
+    renderTranslationWorkspace,
+    syncTranslationAiControls,
+    bindTranslationAiControls,
+    renderTranslationLive,
+    requestTripTranslation,
+    parseTranslationResponse,
+    saveTemplateTranslation,
+    translationBadge
+} from "./trip-translation-shared.js";
 
 const HOTEL_R2_FOLDER = "hotel_img";
 
@@ -32,7 +45,8 @@ const state = {
     editingDraftId: null,
     detailDraftId: null,
     imageDraftId: null,
-    imageSource: "pixabay"
+    imageSource: "pixabay",
+    translation: createTranslationState("hotels-translate")
 };
 
 const $ = (id) => document.getElementById(id);
@@ -52,6 +66,11 @@ const HOTEL_VIEW_CONFIG = {
         title: "תיקון קישורים",
         subtitle: "מלונות עם קישור הזמנה ריק או לא תקין.",
         actions: ""
+    },
+    translate: {
+        title: "תרגום המלצות מלונות",
+        subtitle: "שליחת מלונות מתוך תבנית ל-AI ושמירת translations.en.",
+        actions: ""
     }
 };
 
@@ -66,7 +85,7 @@ function renderPage() {
         title: viewConfig.title,
         subtitle: viewConfig.subtitle,
         actions: viewConfig.actions,
-        content: `${state.view === "compose" ? renderComposeView() : state.view === "fix-links" ? renderHotelFixLinksView() : renderManageView()}${renderHotelEditDialog()}${renderHotelDetailDialog()}${renderHotelImageDialog()}`
+        content: `${state.view === "compose" ? renderComposeView() : state.view === "translate" ? renderTranslateView() : state.view === "fix-links" ? renderHotelFixLinksView() : renderManageView()}${renderHotelEditDialog()}${renderHotelDetailDialog()}${renderHotelImageDialog()}`
     });
 
     attachSharedUi({
@@ -158,6 +177,19 @@ function renderHotelImageDialog() {
 
 function normalizeHotelView(view) {
     return Object.prototype.hasOwnProperty.call(HOTEL_VIEW_CONFIG, view) ? view : "compose";
+}
+
+function renderTranslateView() {
+    const tr = state.translation;
+    return renderTranslationWorkspace({
+        prefix: "hotelTranslate",
+        entityLabel: "המלצות מלונות",
+        loadLabel: "טען תבניות עם מלונות",
+        translateLabel: "תרגם מלונות נבחרים לאנגלית",
+        aiModel: tr.aiModel,
+        thinkingEnabled: tr.thinkingEnabled,
+        reasoningEffort: tr.reasoningEffort
+    });
 }
 
 function renderComposeView() {
@@ -310,6 +342,7 @@ function init() {
     bindDestinationSearch();
     bindActions();
     if (state.view === "manage") loadAllSavedHotels();
+    if (state.view === "translate") loadHotelTranslationTemplates();
     renderDrafts();
     refreshIcons();
 }
@@ -411,6 +444,172 @@ function bindActions() {
     });
     $("useHotelGalleryImageButton")?.addEventListener("click", applyHotelGalleryImage);
     $$('[data-hotel-image-source]').forEach((button) => button.addEventListener("click", () => switchHotelImageSource(button.dataset.hotelImageSource)));
+    bindHotelTranslationActions();
+}
+
+function bindHotelTranslationActions() {
+    if (state.view !== "translate") return;
+    const tr = state.translation;
+    $("hotelTranslateLoadButton")?.addEventListener("click", loadHotelTranslationTemplates);
+    $("hotelTranslateSelectAllButton")?.addEventListener("click", toggleAllHotelTranslationTemplates);
+    $("hotelTranslateTranslateButton")?.addEventListener("click", runHotelTranslations);
+    $("hotelTranslateSearchInput")?.addEventListener("input", (event) => {
+        tr.search = event.target.value;
+        renderHotelTranslationTemplates();
+    });
+    bindTranslationAiControls("hotelTranslate", tr, () => {
+        syncTranslationAiControls("hotelTranslate", tr, tr.saving);
+        refreshIcons();
+    });
+    syncTranslationAiControls("hotelTranslate", tr, tr.saving);
+}
+
+function setHotelTranslationStatus(message, isError = false) {
+    setStatus("hotelTranslateStatus", message, isError);
+}
+
+async function loadHotelTranslationTemplates() {
+    if (!state.firebase) return;
+    const tr = state.translation;
+    tr.loading = true;
+    setHotelTranslationStatus("טוען תבניות עם מלונות...");
+    try {
+        const fs = state.firebase.firestore;
+        const snap = await fs.getDocs(fs.collection(state.firebase.db, "trip_templates"));
+        tr.templates = snap.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .filter((template) => Array.isArray(template.hotels) && template.hotels.length > 0);
+        tr.loaded = true;
+        tr.selectedIds.clear();
+        renderHotelTranslationTemplates();
+        setHotelTranslationStatus(`נטענו ${tr.templates.length} תבניות עם מלונות.`);
+    } catch (error) {
+        setHotelTranslationStatus(`טעינה נכשלה: ${error.message}`, true);
+    } finally {
+        tr.loading = false;
+    }
+}
+
+function filteredHotelTranslationTemplates() {
+    const tr = state.translation;
+    const query = normalize(tr.search);
+    if (!query) return tr.templates;
+    return tr.templates.filter((template) => [
+        template.name,
+        template.mainDestination,
+        ...(template.hotels || []).map((hotel) => hotel.hotelName || hotel.name)
+    ].map(normalize).some((value) => value.includes(query)));
+}
+
+function renderHotelTranslationTemplates() {
+    const tr = state.translation;
+    const visible = filteredHotelTranslationTemplates();
+    if ($("hotelTranslateLoadedPill")) $("hotelTranslateLoadedPill").textContent = `${tr.templates.length} תבניות`;
+    if ($("hotelTranslateSelectedPill")) $("hotelTranslateSelectedPill").textContent = `${tr.selectedIds.size} מסומנים`;
+    const container = $("hotelTranslateCards");
+    if (!container) return;
+    container.innerHTML = visible.map((template) => `
+        <article class="place-card current-place-card">
+            <div class="place-body">
+                <label class="check-row">
+                    <input type="checkbox" data-translate-template-id="${escapeAttr(template.id)}" ${tr.selectedIds.has(template.id) ? "checked" : ""} />
+                    בחירה
+                </label>
+                <div class="compact-card-meta">${translationBadge(template)}</div>
+                <h3>${escapeHtml(template.name || template.mainDestination || "ספריית מלונות")}</h3>
+                <p class="compact-card-summary">${escapeHtml(template.mainDestination || "")}</p>
+                <div class="compact-card-meta">
+                    <span>${Number((template.hotels || []).length)} מלונות</span>
+                    <span>${template.assetLibrary ? "ספריית נכסים" : "מתוך טיול"}</span>
+                </div>
+            </div>
+        </article>
+    `).join("") || emptyHtml("אין תבניות עם מלונות.");
+    container.querySelectorAll("[data-translate-template-id]").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+            const id = checkbox.dataset.translateTemplateId;
+            checkbox.checked ? tr.selectedIds.add(id) : tr.selectedIds.delete(id);
+            renderHotelTranslationTemplates();
+        });
+    });
+    refreshIcons();
+}
+
+function toggleAllHotelTranslationTemplates() {
+    const tr = state.translation;
+    const visible = filteredHotelTranslationTemplates();
+    const allSelected = visible.length > 0 && visible.every((template) => tr.selectedIds.has(template.id));
+    tr.selectedIds.clear();
+    if (!allSelected) visible.forEach((template) => tr.selectedIds.add(template.id));
+    renderHotelTranslationTemplates();
+}
+
+async function runHotelTranslations() {
+    if (!state.user || !state.firebase) {
+        setHotelTranslationStatus("צריך להתחבר לפני תרגום.", true);
+        return;
+    }
+    const tr = state.translation;
+    const selected = tr.templates.filter((template) => tr.selectedIds.has(template.id));
+    if (!selected.length) {
+        setHotelTranslationStatus("בחר לפחות תבנית אחת.", true);
+        return;
+    }
+    tr.saving = true;
+    syncTranslationAiControls("hotelTranslate", tr, true);
+    const failures = [];
+    let saved = 0;
+    try {
+        for (const template of selected) {
+            setHotelTranslationStatus(`מתרגם מלונות של "${template.name || template.id}" (${saved + failures.length + 1}/${selected.length})...`);
+            tr.liveReasoning = "";
+            tr.liveAnswer = "";
+            tr.liveModel = null;
+            renderTranslationLive(tr, "hotelTranslate");
+            try {
+                const payload = buildHotelsTranslationPayload(template);
+                const response = await requestTripTranslation({
+                    user: state.user,
+                    systemPrompt: HOTELS_TRANSLATION_SYSTEM_PROMPT,
+                    payload,
+                    aiModel: tr.aiModel,
+                    thinkingEnabled: tr.thinkingEnabled,
+                    reasoningEffort: tr.reasoningEffort,
+                    handlers: {
+                        getFallbackModel: () => tr.aiModel,
+                        onModel: (model) => { tr.liveModel = model; },
+                        onReasoningDelta: (delta) => { tr.liveReasoning += delta || ""; renderTranslationLive(tr, "hotelTranslate"); },
+                        onContentDelta: (delta) => { tr.liveAnswer += delta || ""; renderTranslationLive(tr, "hotelTranslate"); },
+                        onText: (value) => { tr.liveAnswer = value; renderTranslationLive(tr, "hotelTranslate"); },
+                        render: () => renderTranslationLive(tr, "hotelTranslate")
+                    }
+                });
+                const partial = parseTranslationResponse(response.text || tr.liveAnswer);
+                const existing = template.translations?.en || {};
+                const translation = {
+                    ...existing,
+                    ...(partial.name ? { name: partial.name } : {}),
+                    ...(partial.mainDestination ? { mainDestination: partial.mainDestination } : {}),
+                    hotels: partial.hotels || []
+                };
+                await saveTemplateTranslation(state.firebase, template.id, "en", translation);
+                template.translations = { ...(template.translations || {}), en: translation };
+                saved += 1;
+            } catch (error) {
+                failures.push(`${template.name || template.id}: ${error.message || String(error)}`);
+            }
+        }
+    } finally {
+        tr.saving = false;
+        syncTranslationAiControls("hotelTranslate", tr, false);
+        renderHotelTranslationTemplates();
+    }
+    setHotelTranslationStatus(
+        failures.length
+            ? `תורגמו ${saved} תבניות. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
+            : `תורגמו ונשמרו ${saved} תבניות ב-translations.en.hotels.`,
+        failures.length > 0
+    );
 }
 
 function bindDestinationSearch() {

@@ -41,7 +41,8 @@ const NAV_ITEMS = [
     label: "טיולים",
     subItems: [
       { key: "manage", href: "./trips.html?view=manage", label: "טיולים מצב נוכחי" },
-      { key: "compose", href: "./trips.html?view=compose&step=builder", label: "יצירת טיול" }
+      { key: "compose", href: "./trips.html?view=compose&step=builder", label: "יצירת טיול" },
+      { key: "translate", href: "./trips.html?view=translate", label: "תרגום טיולים" }
     ]
   },
   {
@@ -52,7 +53,8 @@ const NAV_ITEMS = [
     subItems: [
       { key: "manage", href: "./hotels.html?view=manage", label: "מלונות מצב נוכחי" },
       { key: "compose", href: "./hotels.html?view=compose", label: "הוספת מלון" },
-      { key: "fix-links", href: "./hotels.html?view=fix-links", label: "תיקון קישורים" }
+      { key: "fix-links", href: "./hotels.html?view=fix-links", label: "תיקון קישורים" },
+      { key: "translate", href: "./hotels.html?view=translate", label: "תרגום המלצות מלונות" }
     ]
   },
   {
@@ -63,7 +65,8 @@ const NAV_ITEMS = [
     subItems: [
       { key: "manage", href: "./bookings.html?view=manage", label: "קישורי אטרקציות מצב נוכחי" },
       { key: "compose", href: "./bookings.html?view=compose", label: "הוספת קישור אטרקציה" },
-      { key: "fix-links", href: "./bookings.html?view=fix-links", label: "תיקון קישורים" }
+      { key: "fix-links", href: "./bookings.html?view=fix-links", label: "תיקון קישורים" },
+      { key: "translate", href: "./bookings.html?view=translate", label: "תרגום קישורי הזמנות" }
     ]
   },
   {
