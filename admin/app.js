@@ -2022,6 +2022,7 @@ function initTranslateLiveBatches(batches) {
     placeCount: batch.length,
     reasoning: "",
     answer: "",
+    error: "",
     model: null,
     sending: true
   }));
@@ -2035,14 +2036,20 @@ function updateTranslateBatchLiveDom(batch) {
   const meta = panel.querySelector("[data-live-meta]");
   const reasoning = panel.querySelector('[data-live="reasoning"]');
   const answer = panel.querySelector('[data-live="answer"]');
+  const errorEl = panel.querySelector("[data-live-error]");
   if (title) {
-    title.textContent = state.translateSending && batch.sending
-      ? `מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות) · מתרגם…`
-      : `מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות)`;
+    const base = `מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות)`;
+    title.textContent = batch.error
+      ? `${base} · נכשל`
+      : state.translateSending && batch.sending ? `${base} · מתרגם…` : base;
   }
   if (meta) meta.textContent = aiModeSummary(batch.model || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort);
   if (reasoning) reasoning.textContent = batch.reasoning.trim() || "אין תוכן חשיבה להצגה.";
   if (answer) answer.textContent = batch.answer.trim() || "אין תשובה להצגה.";
+  if (errorEl) {
+    errorEl.textContent = batch.error || "";
+    errorEl.classList.toggle("is-hidden", !batch.error);
+  }
   return true;
 }
 
@@ -2058,9 +2065,10 @@ function renderTranslateLivePanels() {
   container.innerHTML = batches.map((batch) => `
     <div class="duplicate-live-panel" data-translate-batch="${batch.batchIndex}">
       <div class="duplicate-live-heading">
-        <strong data-live-title>מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות)${batch.sending ? " · מתרגם…" : ""}</strong>
+        <strong data-live-title>מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות)${batch.error ? " · נכשל" : batch.sending ? " · מתרגם…" : ""}</strong>
         <span data-live-meta>${escapeHtml(aiModeSummary(batch.model || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort))}</span>
       </div>
+      <p class="translate-batch-error${batch.error ? "" : " is-hidden"}" data-live-error>${escapeHtml(batch.error || "")}</p>
       <div class="duplicate-live-grid">
         <div>
           <span>חשיבה</span>
@@ -2177,16 +2185,36 @@ async function runAiTranslate() {
       ? `שולח ${batches.length} מנות במקביל (${places.length} כרטיסיות, עד ${TRANSLATE_AI_BATCH_SIZE} בכל מנה) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`
       : `שולח תרגום ל-${langConfig.label} עם ${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
     let readyCount = 0;
-    await Promise.all(batches.map(async (batch, index) => {
+    // One failing batch must not abort the others — translate every batch
+    // independently and report partial success rather than discarding the
+    // batches that did succeed.
+    const outcomes = await Promise.allSettled(batches.map(async (batch, index) => {
       const parsed = await requestTranslateBatch(batch, lang, index);
       readyCount += stageTranslatePending(parsed, lang);
       renderTranslatePlaces();
       updateTranslateSaveButton();
     }));
-    setStatus("translateStatus", readyCount
-      ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelDisplayName(state.translateLiveModel || state.translateAiModel)}${batches.length > 1 ? ` · ${batches.length} מנות במקביל` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`
-      : `${modelDisplayName(state.translateLiveModel || state.translateAiModel)} לא החזיר תרגומים תקינים.`);
-    if (readyCount) showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
+    const failures = [];
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status !== "rejected") return;
+      const message = parseWorkflowErrorMessage(outcome.reason?.message || String(outcome.reason));
+      failures.push(`מנה ${index + 1}: ${message}`);
+      patchTranslateBatchLive(index, { sending: false, error: message });
+    });
+    const modelLabel = modelDisplayName(state.translateLiveModel || state.translateAiModel);
+    const failSummary = failures.length
+      ? `${failures.length} מנות נכשלו: ${failures.slice(0, 2).join(" | ")}${failures.length > 2 ? ` ועוד ${failures.length - 2}` : ""}`
+      : "";
+    if (readyCount) {
+      setStatus("translateStatus", failures.length
+        ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות, אבל ${failSummary}. לחץ "שמור את כל השינויים" כדי לשמור את המוכנים.`
+        : `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelLabel}${batches.length > 1 ? ` · ${batches.length} מנות במקביל` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`, failures.length > 0);
+      showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
+    } else {
+      setStatus("translateStatus", failures.length
+        ? `תרגום ה-AI נכשל: ${failSummary}`
+        : `${modelLabel} לא החזיר תרגומים תקינים.`, true);
+    }
   } catch (error) {
     setStatus("translateStatus", `תרגום ה-AI נכשל: ${parseWorkflowErrorMessage(error.message)}`, true);
   } finally {

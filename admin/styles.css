@@ -2113,6 +2113,20 @@ svg {
     border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.translate-batch-error {
+    margin: 0;
+    padding: 8px 12px;
+    background: rgba(220, 60, 60, 0.16);
+    color: #ffb4ad;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.translate-batch-error.is-hidden {
+    display: none;
+}
+
 .duplicate-live-heading span {
     color: rgba(248, 244, 234, 0.72);
     font-size: 0.84rem;
