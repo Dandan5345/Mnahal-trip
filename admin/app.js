@@ -157,7 +157,7 @@ const state = {
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const DUPLICATE_AI_BATCH_SIZE = 40;
-const TRANSLATE_AI_BATCH_SIZE = 3;
+const TRANSLATE_AI_BATCH_SIZE = 1;
 const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
@@ -1971,12 +1971,12 @@ function syncTranslateAiControls() {
   }
   const thinkingSelect = $("translateAiThinkingSelect");
   if (thinkingSelect) {
-    thinkingSelect.value = selectedReasoningValue(state.translateThinkingEnabled, state.translateReasoningEffort);
-    thinkingSelect.disabled = state.translateSending;
+    thinkingSelect.value = "off";
+    thinkingSelect.disabled = true;
   }
   const note = $("translateAiModeNote");
   if (note) {
-    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · JSON בלבד.</span>`;
+    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, false, "off")} · תרגום תמיד ללא חשיבה (JSON יציב) · כרטיסיה אחת בכל פעם.</span>`;
     refreshIcons();
   }
   const runButton = $("runTranslateButton");
@@ -2044,8 +2044,18 @@ function updateTranslateBatchLiveDom(batch) {
       : state.translateSending && batch.sending ? `${base} · מתרגם…` : base;
   }
   if (meta) meta.textContent = aiModeSummary(batch.model || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort);
-  if (reasoning) reasoning.textContent = batch.reasoning.trim() || "אין תוכן חשיבה להצגה.";
-  if (answer) answer.textContent = batch.answer.trim() || "אין תשובה להצגה.";
+  if (reasoning) {
+    const reasoningText = batch.reasoning.trim();
+    reasoning.textContent = reasoningText
+      ? (reasoningText.length <= 8000 ? reasoningText : `…\n${reasoningText.slice(reasoningText.length - 8000)}`)
+      : "אין תוכן חשיבה להצגה.";
+  }
+  if (answer) {
+    const answerText = batch.answer.trim();
+    answer.textContent = answerText
+      ? (answerText.length <= 8000 ? answerText : `…\n${answerText.slice(answerText.length - 8000)}`)
+      : "ממתין לסיום התשובה…";
+  }
   if (errorEl) {
     errorEl.textContent = batch.error || "";
     errorEl.classList.toggle("is-hidden", !batch.error);
@@ -2173,7 +2183,7 @@ function parseTranslateResponse(response, places) {
   return result;
 }
 
-async function requestTranslateBatch(places, lang, batchIndex, { noThinking = false } = {}) {
+async function requestTranslateBatch(places, lang, batchIndex, { noThinking = true } = {}) {
   const thinkingEnabled = noThinking ? false : state.translateThinkingEnabled;
   const reasoningEffort = noThinking ? "off" : state.translateReasoningEffort;
   const idToken = await state.user.getIdToken();
@@ -2206,15 +2216,20 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
     onReasoningDelta: (delta) => {
       const batch = state.translateLiveBatches[batchIndex];
       if (!batch) return;
-      patchTranslateBatchLive(batchIndex, { reasoning: appendLiveTextDisplay(batch.reasoning, delta) });
+      patchTranslateBatchLive(batchIndex, { reasoning: appendLiveText(batch.reasoning, delta) });
     },
     onContentDelta: (delta) => {
       const batch = state.translateLiveBatches[batchIndex];
       if (!batch) return;
-      patchTranslateBatchLive(batchIndex, { answer: appendLiveTextDisplay(batch.answer, delta) });
+      patchTranslateBatchLive(batchIndex, { answer: appendLiveText(batch.answer, delta) });
     },
     onText: (value) => {
-      patchTranslateBatchLive(batchIndex, { answer: value });
+      const batch = state.translateLiveBatches[batchIndex];
+      if (!batch) return;
+      const next = text(value);
+      if (next.length >= text(batch.answer).length) {
+        patchTranslateBatchLive(batchIndex, { answer: next });
+      }
     }
   });
   const batch = state.translateLiveBatches[batchIndex];
@@ -2224,35 +2239,41 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
     err.emptyResponse = true;
     throw err;
   }
+  if (payload.done === false && !answerText.trim()) {
+    const err = new Error("התשובה מה-AI נקטעה לפני הסיום. נסה שוב.");
+    err.truncatedStream = true;
+    throw err;
+  }
   const model = payload.model || batch?.model || state.translateAiModel;
-  patchTranslateBatchLive(batchIndex, { model, sending: false, answer: answerText });
+  const reasoningText = text(payload.reasoning) || text(batch?.reasoning);
+  patchTranslateBatchLive(batchIndex, {
+    model,
+    sending: false,
+    answer: answerText,
+    reasoning: reasoningText
+  });
   return parseTranslateResponse(answerText, places);
 }
 
 function isTranslateBatchRetryableError(error) {
   return Boolean(
     error?.emptyResponse
+    || error?.truncatedStream
     || error?.aiError === "empty_content"
     || error instanceof SyntaxError
     || error?.name === "SyntaxError"
   );
 }
 
-async function requestTranslateBatchRobust(places, lang, batchIndex, { forceNoThinking = false } = {}) {
-  const attempts = forceNoThinking
-    ? [{ noThinking: true, label: "בלי חשיבה" }]
-    : [
-        { noThinking: false, label: "רגיל" },
-        ...(state.translateThinkingEnabled ? [{ noThinking: true, label: "בלי חשיבה" }] : [])
-      ];
+async function requestTranslateBatchRobust(places, lang, batchIndex) {
   let lastError;
-  for (const attempt of attempts) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      patchTranslateBatchLive(batchIndex, { reasoning: "", answer: "", error: "", sending: true });
-      if (attempt.label !== "רגיל") {
-        setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב ${attempt.label}...`);
+      if (attempt > 0) {
+        patchTranslateBatchLive(batchIndex, { answer: "", error: "", sending: true });
+        setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב (${attempt + 1}/2)...`);
       }
-      return await requestTranslateBatch(places, lang, batchIndex, { noThinking: attempt.noThinking });
+      return await requestTranslateBatch(places, lang, batchIndex, { noThinking: true });
     } catch (error) {
       lastError = error;
       if (!isTranslateBatchRetryableError(error)) throw error;
@@ -2261,8 +2282,8 @@ async function requestTranslateBatchRobust(places, lang, batchIndex, { forceNoTh
   if (places.length <= 1) throw lastError;
   const mid = Math.ceil(places.length / 2);
   setStatus("translateStatus", `מנה ${batchIndex + 1} גדולה מדי — מפצל ל-${mid} + ${places.length - mid} כרטיסיות...`);
-  const left = await requestTranslateBatchRobust(places.slice(0, mid), lang, batchIndex, { forceNoThinking: true });
-  const right = await requestTranslateBatchRobust(places.slice(mid), lang, batchIndex, { forceNoThinking: true });
+  const left = await requestTranslateBatchRobust(places.slice(0, mid), lang, batchIndex);
+  const right = await requestTranslateBatchRobust(places.slice(mid), lang, batchIndex);
   return { ...left, ...right };
 }
 
@@ -5804,6 +5825,7 @@ async function readDeepSeekResponse(response, handlers = {}) {
   let buffer = "";
   let fullText = "";
   let fullReasoning = "";
+  let streamDone = false;
   let model = handlers.getFallbackModel?.() || state.duplicateAiModel;
 
   const handleEvent = (event) => {
@@ -5827,9 +5849,11 @@ async function readDeepSeekResponse(response, handlers = {}) {
       handlers.onContentDelta?.(contentDelta);
     }
     if (event.text) {
-      fullText = event.text;
+      const nextText = text(event.text);
+      if (nextText.length >= fullText.length) fullText = nextText;
       handlers.onText?.(fullText);
     }
+    if (event.done) streamDone = true;
     handlers.render?.();
   };
 
@@ -5860,7 +5884,7 @@ async function readDeepSeekResponse(response, handlers = {}) {
 
   if (buffer.trim()) processPart(buffer);
 
-  return { text: fullText, reasoning: fullReasoning, model };
+  return { text: fullText, reasoning: fullReasoning, model, done: streamDone || Boolean(fullText.trim()) };
 }
 
 function parseSseData(rawEvent) {

@@ -194,6 +194,7 @@ export async function readDeepSeekResponse(response, handlers = {}) {
   let buffer = "";
   let fullText = "";
   let fullReasoning = "";
+  let streamDone = false;
   let model = handlers.getFallbackModel?.() || "deepseek-v4-pro";
 
   const handleEvent = (event) => {
@@ -221,9 +222,11 @@ export async function readDeepSeekResponse(response, handlers = {}) {
       handlers.onContentDelta?.(contentDelta);
     }
     if (event.text) {
-      fullText = event.text;
+      const nextText = text(event.text);
+      if (nextText.length >= fullText.length) fullText = nextText;
       handlers.onText?.(fullText);
     }
+    if (event.done) streamDone = true;
     handlers.render?.();
   };
 
@@ -255,7 +258,7 @@ export async function readDeepSeekResponse(response, handlers = {}) {
   // chunk without a closing blank line, and dropping it truncates the answer.
   if (buffer.trim()) processPart(buffer);
 
-  return { model, text: fullText, reasoning: fullReasoning };
+  return { model, text: fullText, reasoning: fullReasoning, done: streamDone || Boolean(fullText.trim()) };
 }
 
 export function renderTranslationAiControls(prefix, model, thinkingEnabled, reasoningEffort) {
