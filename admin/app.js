@@ -158,7 +158,6 @@ const state = {
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const DUPLICATE_AI_BATCH_SIZE = 40;
 const TRANSLATE_AI_BATCH_SIZE = 5;
-const TRANSLATE_AI_CONCURRENCY = 3;
 const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
@@ -2186,25 +2185,21 @@ async function runAiTranslate() {
     syncTranslateAiControls();
     initTranslateLiveBatches(batches);
     await ensureFreshAdminAuthToken();
-    setStatus("translateStatus", batches.length > 1
-      ? `שולח ${batches.length} מנות (${places.length} כרטיסיות, עד ${TRANSLATE_AI_BATCH_SIZE} בכל מנה, עד ${TRANSLATE_AI_CONCURRENCY} במקביל) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`
-      : `שולח תרגום ל-${langConfig.label} עם ${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
+    setStatus("translateStatus", `שולח ${places.length} כרטיסיות (${batches.length} מנות) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
     let readyCount = 0;
     const failures = [];
-    // Each batch is an independent AI request with its own token budget — one
-    // failing batch must never abort the others. Cap how many run at once so we
-    // don't hammer the model with every batch simultaneously, and if a batch
-    // comes back empty (thinking burned its whole budget) retry it once with
-    // thinking off, which reliably returns the JSON content.
-    await mapWithConcurrency(batches, TRANSLATE_AI_CONCURRENCY, async (batch, index) => {
+    // Process the batches one at a time, exactly like the opening-hours and
+    // duplicate tools. Firing several streaming DeepSeek requests in parallel
+    // truncates their responses ("Unterminated string in JSON"); sequential
+    // requests each complete cleanly. A failing batch still never aborts the
+    // rest, and an empty/truncated batch is retried once with thinking off.
+    for (const [index, batch] of batches.entries()) {
+      setStatus("translateStatus", `מעבד מנה ${index + 1} מתוך ${batches.length}...`);
       try {
         let parsed;
         try {
           parsed = await requestTranslateBatch(batch, lang, index);
         } catch (error) {
-          // Empty *and* truncated ("Unterminated string"/"Unexpected end of JSON")
-          // both mean thinking ate the token budget before the JSON answer could
-          // finish. Retrying with thinking off gives the whole budget to content.
           const wasThinking = state.translateThinkingEnabled;
           const starvedByThinking = error?.emptyResponse
             || error?.aiError === "empty_content"
@@ -2222,7 +2217,7 @@ async function runAiTranslate() {
         failures.push(`מנה ${index + 1}: ${message}`);
         patchTranslateBatchLive(index, { sending: false, error: message });
       }
-    });
+    }
     const modelLabel = modelDisplayName(state.translateLiveModel || state.translateAiModel);
     const failSummary = failures.length
       ? `${failures.length} מנות נכשלו: ${failures.slice(0, 2).join(" | ")}${failures.length > 2 ? ` ועוד ${failures.length - 2}` : ""}`
@@ -2230,7 +2225,7 @@ async function runAiTranslate() {
     if (readyCount) {
       setStatus("translateStatus", failures.length
         ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות, אבל ${failSummary}. לחץ "שמור את כל השינויים" כדי לשמור את המוכנים.`
-        : `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelLabel}${batches.length > 1 ? ` · ${batches.length} מנות במקביל` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`, failures.length > 0);
+        : `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelLabel}${batches.length > 1 ? ` · ${batches.length} מנות` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`, failures.length > 0);
       showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
     } else {
       setStatus("translateStatus", failures.length
