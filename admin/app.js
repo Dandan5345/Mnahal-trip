@@ -290,6 +290,7 @@ If a source field is empty, return an empty string "" for it.
 
 Return STRICT JSON ONLY. No markdown, no code fences, no prose, no comments, no extra keys, no text before or after the JSON object.
 Your entire answer must be exactly one valid JSON object that starts with "{" and ends with "}".
+For a batch with multiple places, translate all places first and then output one complete JSON object. Do not output separate partial objects per place.
 
 The output MUST be a single JSON object keyed by each place_id, where each value has ONLY these four translated fields:
 {
@@ -2054,12 +2055,92 @@ function renderTranslateLivePanel() {
   }
 }
 
-function parseTranslateResponse(response, places) {
-  const byId = new Map(places.map((place) => [place.id, place]));
-  const decoded = JSON.parse(extractJsonObjectText(response));
-  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return {};
+function extractBalancedObjectAfterKey(rawText, key) {
+  const source = String(rawText ?? "");
+  const needle = `"${String(key).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+  const keyIndex = source.indexOf(needle);
+  if (keyIndex === -1) return null;
+  const colonIndex = source.indexOf(":", keyIndex + needle.length);
+  if (colonIndex === -1) return null;
+  let index = colonIndex + 1;
+  while (index < source.length && /\s/.test(source[index])) index += 1;
+  if (source[index] !== "{") return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  const start = index;
+  for (; index < source.length; index += 1) {
+    const ch = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
+function salvagePlaceTranslationsJson(rawText, placeIds) {
   const result = {};
-  Object.entries(decoded).forEach(([id, value]) => {
+  placeIds.forEach((id) => {
+    const objectText = extractBalancedObjectAfterKey(rawText, id);
+    if (!objectText) return;
+    try {
+      result[id] = JSON.parse(objectText);
+    } catch (_) {
+      // Ignore one broken place and keep looking for complete objects.
+    }
+  });
+  return result;
+}
+
+function translateResponseEntries(decoded) {
+  if (Array.isArray(decoded)) {
+    return decoded.map((item) => [text(item?.place_id || item?.id), item]);
+  }
+  if (!decoded || typeof decoded !== "object") return [];
+  const source = decoded.translation && typeof decoded.translation === "object"
+    ? decoded.translation
+    : decoded;
+  if (Array.isArray(source.places)) {
+    return source.places.map((item) => [text(item?.place_id || item?.id), item]);
+  }
+  return Object.entries(source);
+}
+
+function parseTranslateResponse(response, places, { allowPartial = false } = {}) {
+  const byId = new Map(places.map((place) => [place.id, place]));
+  const rawText = String(response ?? "");
+  if (!rawText.trim()) {
+    const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
+    err.emptyResponse = true;
+    throw err;
+  }
+  let decoded;
+  try {
+    decoded = JSON.parse(extractJsonObjectText(rawText));
+  } catch (parseError) {
+    decoded = salvagePlaceTranslationsJson(rawText, places.map((place) => place.id));
+    if (!Object.keys(decoded).length) throw parseError;
+  }
+  const result = {};
+  translateResponseEntries(decoded).forEach(([id, value]) => {
     if (!byId.has(id) || !value || typeof value !== "object") return;
     result[id] = {
       name: text(value.name),
@@ -2068,10 +2149,18 @@ function parseTranslateResponse(response, places) {
       hours: text(value.hours)
     };
   });
+  if (!allowPartial && Object.keys(result).length !== places.length) {
+    const err = new Error(`ה-AI החזיר ${Object.keys(result).length} מתוך ${places.length} תרגומים. מנסה שוב במנה קטנה יותר.`);
+    err.incompleteResponse = true;
+    err.partialTranslations = result;
+    throw err;
+  }
   return result;
 }
 
-async function requestTranslateBatch(places, lang) {
+async function requestTranslateBatch(places, lang, { noThinking = false } = {}) {
+  const thinkingEnabled = noThinking ? false : state.translateThinkingEnabled;
+  const reasoningEffort = noThinking ? "off" : state.translateReasoningEffort;
   const idToken = await state.user.getIdToken();
   const response = await fetch(DUPLICATE_AI_ENDPOINT, {
     method: "POST",
@@ -2085,9 +2174,9 @@ async function requestTranslateBatch(places, lang) {
       userPrompt: buildTranslatePrompt(places),
       maxTokens: 32768,
       preferredModel: state.translateAiModel,
-      thinkingEnabled: state.translateThinkingEnabled,
-      reasoningEffort: state.translateReasoningEffort,
-      temperature: thinkingTemperature(state.translateThinkingEnabled, state.translateReasoningEffort),
+      thinkingEnabled,
+      reasoningEffort,
+      temperature: thinkingTemperature(thinkingEnabled, reasoningEffort),
       jsonObjectResponse: true,
       stream: true
     })
@@ -2111,7 +2200,55 @@ async function requestTranslateBatch(places, lang) {
     render: renderTranslateLivePanel
   });
   state.translateLiveModel = payload.model || state.translateLiveModel || state.translateAiModel;
-  return parseTranslateResponse(payload.text || state.translateLiveAnswer, places);
+  const answerText = text(payload.text) ? payload.text : state.translateLiveAnswer;
+  return parseTranslateResponse(answerText, places);
+}
+
+function isTranslateBatchRetryableError(error) {
+  return Boolean(
+    error?.emptyResponse
+    || error?.incompleteResponse
+    || error?.aiError === "empty_content"
+    || error instanceof SyntaxError
+    || error?.name === "SyntaxError"
+    || /Unexpected end of JSON input|Unterminated string/i.test(error?.message || "")
+  );
+}
+
+function resetTranslateLiveText() {
+  state.translateLiveReasoning = "";
+  state.translateLiveAnswer = "";
+  renderTranslateLivePanel();
+}
+
+async function requestTranslateBatchRobust(places, lang, batchIndex, batchCount) {
+  let lastError;
+  try {
+    return await requestTranslateBatch(places, lang);
+  } catch (error) {
+    lastError = error;
+    if (!isTranslateBatchRetryableError(error)) throw error;
+  }
+
+  if (state.translateThinkingEnabled) {
+    try {
+      resetTranslateLiveText();
+      setStatus("translateStatus", `מנה ${batchIndex + 1}/${batchCount} נקטעה - מנסה שוב ללא מצב חשיבה...`);
+      return await requestTranslateBatch(places, lang, { noThinking: true });
+    } catch (error) {
+      lastError = error;
+      if (!isTranslateBatchRetryableError(error)) throw error;
+    }
+  }
+
+  if (places.length <= 1) throw lastError;
+  const mid = Math.ceil(places.length / 2);
+  setStatus("translateStatus", `מנה ${batchIndex + 1}/${batchCount} עדיין נקטעת - מפצל ל-${mid} + ${places.length - mid} כרטיסיות...`);
+  resetTranslateLiveText();
+  const left = await requestTranslateBatchRobust(places.slice(0, mid), lang, batchIndex, batchCount);
+  resetTranslateLiveText();
+  const right = await requestTranslateBatchRobust(places.slice(mid), lang, batchIndex, batchCount);
+  return { ...left, ...right };
 }
 
 async function runAiTranslate() {
@@ -2136,7 +2273,8 @@ async function runAiTranslate() {
     syncTranslateAiControls();
     renderTranslateLivePanel();
     await ensureFreshAdminAuthToken();
-    const merged = {};
+    let readyCount = 0;
+    const failures = [];
     for (let index = 0; index < batches.length; index += 1) {
       const batch = batches[index];
       setStatus("translateStatus", batches.length > 1
@@ -2147,16 +2285,29 @@ async function runAiTranslate() {
         state.translateLiveAnswer = "";
         renderTranslateLivePanel();
       }
-      const parsed = await requestTranslateBatch(batch, lang);
-      Object.assign(merged, parsed);
+      try {
+        const parsed = await requestTranslateBatchRobust(batch, lang, index, batches.length);
+        readyCount += stageTranslatePending(parsed, lang);
+        renderTranslatePlaces();
+        updateTranslateSaveButton();
+      } catch (error) {
+        failures.push(`מנה ${index + 1}: ${parseWorkflowErrorMessage(error?.message || String(error))}`);
+      }
     }
-    const readyCount = stageTranslatePending(merged, lang);
-    renderTranslatePlaces();
-    updateTranslateSaveButton();
-    setStatus("translateStatus", readyCount
-      ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelDisplayName(state.translateLiveModel || state.translateAiModel)}${batches.length > 1 ? ` · ${batches.length} מנות` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`
-      : `${modelDisplayName(state.translateLiveModel || state.translateAiModel)} לא החזיר תרגומים תקינים.`);
-    if (readyCount) showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
+    const modelLabel = modelDisplayName(state.translateLiveModel || state.translateAiModel);
+    const failureSummary = failures.length
+      ? `${failures.length} מנות נכשלו: ${failures.slice(0, 2).join(" | ")}${failures.length > 2 ? ` ועוד ${failures.length - 2}` : ""}`
+      : "";
+    if (readyCount) {
+      setStatus("translateStatus", failures.length
+        ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות, אבל ${failureSummary}. אפשר לשמור את מה שמוכן.`
+        : `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelLabel}${batches.length > 1 ? ` · ${batches.length} מנות` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`, failures.length > 0);
+      showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
+    } else {
+      setStatus("translateStatus", failures.length
+        ? `תרגום ה-AI נכשל: ${failureSummary}`
+        : `${modelLabel} לא החזיר תרגומים תקינים.`, true);
+    }
   } catch (error) {
     setStatus("translateStatus", `תרגום ה-AI נכשל: ${parseWorkflowErrorMessage(error.message)}`, true);
   } finally {
@@ -5671,19 +5822,8 @@ async function readDeepSeekResponse(response, handlers = {}) {
   };
 
   const processPart = (part) => {
-    const lines = part.split("\n").filter(Boolean);
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const raw = line.slice(5).trim();
-      if (!raw || raw === "[DONE]") continue;
-      let event;
-      try {
-        event = JSON.parse(raw);
-      } catch (_) {
-        continue;
-      }
-      handleEvent(event);
-    }
+    const event = parseSseData(part);
+    if (event) handleEvent(event);
   };
 
   while (true) {
@@ -5697,7 +5837,7 @@ async function readDeepSeekResponse(response, handlers = {}) {
 
   if (buffer.trim()) processPart(buffer);
 
-  return { text: fullText, reasoning: fullReasoning, model, done: streamDone };
+  return { text: fullText, reasoning: fullReasoning, model, done: streamDone || Boolean(fullText.trim()) };
 }
 
 function parseSseData(rawEvent) {
@@ -5716,9 +5856,11 @@ function parseSseData(rawEvent) {
 }
 
 function appendLiveText(current, delta) {
-  const next = text(delta);
-  if (!next) return text(current);
-  return `${text(current)}${next}`;
+  const base = current == null ? "" : String(current);
+  if (delta == null) return base;
+  const next = String(delta);
+  if (!next) return base;
+  return `${base}${next}`;
 }
 
 function appendLiveTextDisplay(current, delta, maxLength = 6000) {

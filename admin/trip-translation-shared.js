@@ -168,9 +168,11 @@ export function extractJsonObjectText(response) {
 }
 
 export function appendLiveText(current, delta) {
-  const next = text(delta);
-  if (!next) return text(current);
-  return `${text(current)}${next}`;
+  const base = current == null ? "" : String(current);
+  if (delta == null) return base;
+  const next = String(delta);
+  if (!next) return base;
+  return `${base}${next}`;
 }
 
 export async function readDeepSeekResponse(response, handlers = {}) {
