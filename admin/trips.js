@@ -28,7 +28,10 @@ import {
     requestTripTranslation,
     parseTranslationResponse,
     saveTemplateTranslation,
-    translationBadge
+    translationBadge,
+    applyTranslationFilter,
+    bindTranslationFilterControls,
+    translationFilterEmptyMessage
 } from "./trip-translation-shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
@@ -1840,6 +1843,7 @@ function bindTripTranslationActions() {
         tr.search = event.target.value;
         renderTranslationTemplates();
     });
+    bindTranslationFilterControls("tripTranslate", tr, () => renderTranslationTemplates());
     bindTranslationAiControls("tripTranslate", tr, () => {
         syncTranslationAiControls("tripTranslate", tr, tr.saving);
         refreshIcons();
@@ -1876,8 +1880,9 @@ async function loadTranslationTemplates() {
 function filteredTranslationTemplates() {
     const tr = state.translation;
     const query = normalize(tr.search);
-    if (!query) return tr.templates;
-    return tr.templates.filter((template) => [
+    let visible = applyTranslationFilter(tr.templates, tr.filter, tr.lang);
+    if (!query) return visible;
+    return visible.filter((template) => [
         template.name,
         template.mainDestination,
         template.city,
@@ -1890,6 +1895,7 @@ function renderTranslationTemplates() {
     const tr = state.translation;
     const visible = filteredTranslationTemplates();
     if ($("tripTranslateLoadedPill")) $("tripTranslateLoadedPill").textContent = `${tr.templates.length} תבניות`;
+    if ($("tripTranslateFilteredPill")) $("tripTranslateFilteredPill").textContent = `${visible.length} מוצגים`;
     if ($("tripTranslateSelectedPill")) $("tripTranslateSelectedPill").textContent = `${tr.selectedIds.size} מסומנים`;
     const container = $("tripTranslateCards");
     if (!container) return;
@@ -1910,7 +1916,7 @@ function renderTranslationTemplates() {
                 </div>
             </div>
         </article>
-    `).join("") || emptyHtml("אין תבניות לתרגום.");
+    `).join("") || emptyHtml(translationFilterEmptyMessage(tr.filter, tr.lang, "אין תבניות לתרגום."));
     container.querySelectorAll("[data-translate-template-id]").forEach((checkbox) => {
         checkbox.addEventListener("change", () => {
             const id = checkbox.dataset.translateTemplateId;

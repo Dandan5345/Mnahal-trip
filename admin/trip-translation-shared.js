@@ -419,15 +419,82 @@ export function buildBookingsTranslationPayload(template) {
   };
 }
 
-export function hasEnglishTranslation(template) {
-  const en = template?.translations?.en;
-  return Boolean(en && typeof en === "object" && Object.keys(en).length > 0);
+export function hasLangTranslation(item, langCode) {
+  const t = item?.translations?.[langCode];
+  if (!t || typeof t !== "object") return false;
+  return Object.values(t).some((value) => {
+    if (Array.isArray(value)) return value.length > 0;
+    if (value && typeof value === "object") return Object.keys(value).length > 0;
+    return text(value).length > 0;
+  });
 }
 
-export function translationBadge(template) {
-  return hasEnglishTranslation(template)
-    ? `<span class="count-pill success-pill">EN ✓</span>`
-    : `<span class="count-pill">ללא EN</span>`;
+export function hasEnglishTranslation(template) {
+  return hasLangTranslation(template, "en");
+}
+
+export function translationLangLabel(langCode) {
+  if (langCode === "fr") return "צרפתית";
+  return "אנגלית";
+}
+
+export function translationLangBadge(langCode) {
+  if (langCode === "fr") return "FR";
+  return "EN";
+}
+
+export function applyTranslationFilter(items, filter, langCode = "en") {
+  const normalizedFilter = text(filter) || "all";
+  if (normalizedFilter === "missing") {
+    return items.filter((item) => !hasLangTranslation(item, langCode));
+  }
+  if (normalizedFilter === "has") {
+    return items.filter((item) => hasLangTranslation(item, langCode));
+  }
+  return items;
+}
+
+export function renderTranslationFilterControls(prefix, langCode = "en") {
+  const langLabel = translationLangLabel(langCode);
+  return `
+    <label class="edit-field">
+      <span>סינון תרגום</span>
+      <select id="${prefix}FilterSelect">
+        <option value="all">הכל</option>
+        <option value="missing">ללא תרגום ${langLabel}</option>
+        <option value="has">עם תרגום ${langLabel}</option>
+      </select>
+    </label>
+  `;
+}
+
+export function syncTranslationFilterSelectOptions(prefix, langCode = "en", selectedFilter = "all") {
+  const select = document.getElementById(`${prefix}FilterSelect");
+  if (!select) return;
+  const langLabel = translationLangLabel(langCode);
+  select.innerHTML = `
+    <option value="all">הכל</option>
+    <option value="missing">ללא תרגום ${langLabel}</option>
+    <option value="has">עם תרגום ${langLabel}</option>
+  `;
+  select.value = selectedFilter || "all";
+}
+
+export function bindTranslationFilterControls(prefix, state, onChange) {
+  const select = document.getElementById(`${prefix}FilterSelect");
+  if (!select) return;
+  syncTranslationFilterSelectOptions(prefix, state.lang || "en", state.filter || "all");
+  select.addEventListener("change", () => {
+    state.filter = select.value || "all";
+    onChange?.();
+  });
+}
+
+export function translationBadge(template, langCode = "en") {
+  const badge = translationLangBadge(langCode);
+  return hasLangTranslation(template, langCode)
+    ? `<span class="count-pill success-pill">${badge} ✓</span>`
+    : `<span class="count-pill">ללא ${badge}</span>`;
 }
 
 export async function requestTripTranslation({
@@ -488,6 +555,13 @@ export async function saveTemplateTranslation(firebase, templateId, langCode, tr
   );
 }
 
+export function translationFilterEmptyMessage(filter, langCode = "en", fallback = "אין פריטים לתרגום.") {
+  const langLabel = translationLangLabel(langCode);
+  if (filter === "missing") return `אין פריטים ללא תרגום ${langLabel}.`;
+  if (filter === "has") return `אין פריטים עם תרגום ${langLabel}.`;
+  return fallback;
+}
+
 export function createTranslationState(featureKey) {
   return {
     templates: [],
@@ -496,6 +570,8 @@ export function createTranslationState(featureKey) {
     loading: false,
     saving: false,
     search: "",
+    filter: "all",
+    lang: "en",
     aiModel: storedAiPreference(featureKey, "model", "deepseek-v4-pro"),
     thinkingEnabled: storedAiPreference(featureKey, "thinkingEnabled", "true") !== "false",
     reasoningEffort: storedAiPreference(featureKey, "reasoningEffort", "high"),
@@ -526,6 +602,7 @@ export function renderTranslationWorkspace({
         </div>
         <div class="current-summary-row">
           <span class="count-pill" id="${prefix}LoadedPill">0 פריטים</span>
+          <span class="count-pill" id="${prefix}FilteredPill">0 מוצגים</span>
           <span class="count-pill" id="${prefix}SelectedPill">0 מסומנים</span>
           <button class="ghost-action small-action" type="button" id="${prefix}SelectAllButton">
             <i data-lucide="check-square" aria-hidden="true"></i>
@@ -536,6 +613,7 @@ export function renderTranslationWorkspace({
           <span>חיפוש</span>
           <input type="search" id="${prefix}SearchInput" placeholder="שם, יעד..." />
         </label>
+        ${renderTranslationFilterControls(prefix, "en")}
         <div class="action-row">
           <button class="primary-action" type="button" id="${prefix}LoadButton">
             <i data-lucide="download-cloud" aria-hidden="true"></i>

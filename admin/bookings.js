@@ -26,7 +26,10 @@ import {
     requestTripTranslation,
     parseTranslationResponse,
     saveTemplateTranslation,
-    translationBadge
+    translationBadge,
+    applyTranslationFilter,
+    bindTranslationFilterControls,
+    translationFilterEmptyMessage
 } from "./trip-translation-shared.js";
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
@@ -453,6 +456,7 @@ function bindBookingTranslationActions() {
         tr.search = event.target.value;
         renderBookingTranslationTemplates();
     });
+    bindTranslationFilterControls("bookingTranslate", tr, () => renderBookingTranslationTemplates());
     bindTranslationAiControls("bookingTranslate", tr, () => {
         syncTranslationAiControls("bookingTranslate", tr, tr.saving);
         refreshIcons();
@@ -489,8 +493,9 @@ async function loadBookingTranslationTemplates() {
 function filteredBookingTranslationTemplates() {
     const tr = state.translation;
     const query = normalize(tr.search);
-    if (!query) return tr.templates;
-    return tr.templates.filter((template) => [
+    let visible = applyTranslationFilter(tr.templates, tr.filter, tr.lang);
+    if (!query) return visible;
+    return visible.filter((template) => [
         template.name,
         template.mainDestination,
         ...(template.bookingLinks || []).flatMap((booking) => [booking.title, booking.placeTitle, booking.summary])
@@ -501,6 +506,7 @@ function renderBookingTranslationTemplates() {
     const tr = state.translation;
     const visible = filteredBookingTranslationTemplates();
     if ($("bookingTranslateLoadedPill")) $("bookingTranslateLoadedPill").textContent = `${tr.templates.length} תבניות`;
+    if ($("bookingTranslateFilteredPill")) $("bookingTranslateFilteredPill").textContent = `${visible.length} מוצגים`;
     if ($("bookingTranslateSelectedPill")) $("bookingTranslateSelectedPill").textContent = `${tr.selectedIds.size} מסומנים`;
     const container = $("bookingTranslateCards");
     if (!container) return;
@@ -520,7 +526,7 @@ function renderBookingTranslationTemplates() {
                 </div>
             </div>
         </article>
-    `).join("") || emptyHtml("אין תבניות עם קישורי הזמנה.");
+    `).join("") || emptyHtml(translationFilterEmptyMessage(tr.filter, tr.lang, "אין תבניות עם קישורי הזמנה."));
     container.querySelectorAll("[data-translate-template-id]").forEach((checkbox) => {
         checkbox.addEventListener("change", () => {
             const id = checkbox.dataset.translateTemplateId;

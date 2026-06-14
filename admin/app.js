@@ -13,6 +13,11 @@ import {
   combinePromptWithNotes,
   debounce
 } from "./shared.js";
+import {
+  applyTranslationFilter,
+  hasLangTranslation,
+  syncTranslationFilterSelectOptions
+} from "./trip-translation-shared.js";
 
 const WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron37.workers.dev";
 const R2_PLACE_IMAGE_FOLDER = "place_img";
@@ -138,6 +143,7 @@ const state = {
   selectedTranslateIds: new Set(),
   translateRadiusKm: 50,
   translateLang: "en",
+  translateFilter: "all",
   translateSending: false,
   translateSaving: false,
   translatePending: {},
@@ -1195,8 +1201,13 @@ function renderPage() {
             </div>
             <div class="action-row tight">
               <span class="count-pill" id="translateLoadedPill">0 כרטיסיות</span>
+              <span class="count-pill" id="translateFilteredPill">0 מוצגים</span>
               <span class="count-pill" id="translateSelectedPill">0 מסומנים</span>
             </div>
+          </div>
+          <div class="field-block translate-list-filters">
+            <label for="translateFilterSelect">סינון רשימה</label>
+            <select id="translateFilterSelect"></select>
           </div>
           <div class="cards-grid compact-grid" id="translateCards"></div>
         </section>
@@ -1823,6 +1834,16 @@ function bindTranslateTools() {
     langSelect.value = state.translateLang;
     langSelect.addEventListener("change", (event) => {
       state.translateLang = event.target.value === "fr" ? "fr" : "en";
+      syncTranslateFilterControls();
+      renderTranslatePlaces();
+    });
+  }
+  const filterSelect = $("translateFilterSelect");
+  if (filterSelect) {
+    syncTranslateFilterControls();
+    filterSelect.addEventListener("change", (event) => {
+      state.translateFilter = event.target.value || "all";
+      renderTranslatePlaces();
     });
   }
   $("translateAiModelSelect")?.addEventListener("change", (event) => {
@@ -1874,8 +1895,16 @@ async function loadTranslatePlaces() {
   setStatus("translateStatus", `נטענו ${places.length} כרטיסיות ברדיוס ${state.translateRadiusKm} ק"מ מ-${dest.label}.`);
 }
 
+function syncTranslateFilterControls() {
+  syncTranslationFilterSelectOptions("translate", state.translateLang, state.translateFilter);
+}
+
+function filteredTranslatePlaces() {
+  return applyTranslationFilter(state.translatePlaces, state.translateFilter, state.translateLang);
+}
+
 function toggleAllTranslate() {
-  const places = state.translatePlaces;
+  const places = filteredTranslatePlaces();
   const set = state.selectedTranslateIds;
   const allSelected = places.length > 0 && places.every((place) => set.has(place.id));
   set.clear();
@@ -1884,11 +1913,18 @@ function toggleAllTranslate() {
 }
 
 function renderTranslatePlaces() {
+  const visible = filteredTranslatePlaces();
   if ($("translateLoadedPill")) $("translateLoadedPill").textContent = `${state.translatePlaces.length} כרטיסיות`;
+  if ($("translateFilteredPill")) $("translateFilteredPill").textContent = `${visible.length} מוצגים`;
   if ($("translateSelectedPill")) $("translateSelectedPill").textContent = `${state.selectedTranslateIds.size} מסומנים`;
   const container = $("translateCards");
   if (!container) return;
-  container.innerHTML = state.translatePlaces.map(renderTranslateCard).join("") || emptyHtml("אין כרטיסיות. בחר יעד ולחץ טען כרטיסיות.");
+  const emptyMessage = state.translateFilter === "missing"
+    ? "אין כרטיסיות בלי תרגום לשפת היעד."
+    : state.translateFilter === "has"
+      ? "אין כרטיסיות עם תרגום לשפת היעד."
+      : "אין כרטיסיות. בחר יעד ולחץ טען כרטיסיות.";
+  container.innerHTML = visible.map(renderTranslateCard).join("") || emptyHtml(emptyMessage);
   container.querySelectorAll("[data-translate-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
     checkbox.checked ? state.selectedTranslateIds.add(checkbox.dataset.translateSelect) : state.selectedTranslateIds.delete(checkbox.dataset.translateSelect);
     if ($("translateSelectedPill")) $("translateSelectedPill").textContent = `${state.selectedTranslateIds.size} מסומנים`;
@@ -1898,8 +1934,8 @@ function renderTranslatePlaces() {
 
 function translateBadgesHtml(place) {
   const badges = ['<span class="count-pill">HE</span>'];
-  if (place.translations?.en) badges.push('<span class="count-pill">EN</span>');
-  if (place.translations?.fr) badges.push('<span class="count-pill">FR</span>');
+  if (hasLangTranslation(place, "en")) badges.push('<span class="count-pill">EN</span>');
+  if (hasLangTranslation(place, "fr")) badges.push('<span class="count-pill">FR</span>');
   const pending = state.translatePending[place.id];
   if (pending) {
     Object.keys(pending).forEach((lang) => {
