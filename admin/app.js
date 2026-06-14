@@ -157,7 +157,7 @@ const state = {
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const DUPLICATE_AI_BATCH_SIZE = 40;
-const TRANSLATE_AI_BATCH_SIZE = 3;
+const TRANSLATE_AI_BATCH_SIZE = 5;
 const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
@@ -288,6 +288,12 @@ Keep proper nouns sensible and natural for ${targetEnglish} readers (use the com
 If a source field is empty, return an empty string "" for it.
 
 Return STRICT JSON ONLY. No markdown, no code fences, no prose, no comments, no extra keys.
+
+Workflow for each batch:
+1. Read ALL places in the batch together.
+2. Think through the translations for the entire batch in one reasoning pass (do NOT alternate think/answer per place).
+3. After finishing your reasoning, output ONE single complete JSON object that contains every place_id from the input in the same response.
+
 The output MUST be a single JSON object keyed by each place_id, where each value has ONLY these four translated fields:
 {
   "<place_id>": { "name": "...", "shortDescription": "...", "description": "...", "hours": "..." }
@@ -1976,7 +1982,7 @@ function syncTranslateAiControls() {
   }
   const note = $("translateAiModeNote");
   if (note) {
-    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · JSON בלבד · ממתין לסיום התשובה לפני שמירה.</span>`;
+    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · ${TRANSLATE_AI_BATCH_SIZE} כרטיסיות במנה · JSON מלא רק בסיום.</span>`;
     refreshIcons();
   }
   const runButton = $("runTranslateButton");
@@ -1996,6 +2002,8 @@ function buildTranslatePrompt(places) {
   return JSON.stringify({
     task: "Translate the free-text fields of these TripInspo place cards.",
     target_language: translateLangConfig(state.translateLang).english,
+    batch_size: places.length,
+    workflow: "Think through every place in this batch first, then return one single complete JSON object containing all place_id keys.",
     places: places.map((place) => ({
       place_id: place.id,
       name: text(place.name),
@@ -2004,6 +2012,16 @@ function buildTranslatePrompt(places) {
       hours: text(place.hours)
     }))
   });
+}
+
+function translateBatchAnswerLabel(batch) {
+  if (batch.streamPhase === "thinking") return "חושב על כל המנה…";
+  if (batch.streamPhase === "answering") {
+    const count = batch.streamCharCount || 0;
+    return count ? `כותב JSON מלא (${count} תווים)…` : "כותב JSON מלא…";
+  }
+  if (batch.sending) return "ממתין לסיום התשובה…";
+  return "אין תשובה להצגה.";
 }
 
 function copyTranslatePrompt() {
@@ -2022,6 +2040,9 @@ function initTranslateLiveBatches(batches) {
     placeCount: batch.length,
     reasoning: "",
     answer: "",
+    answerReady: false,
+    streamPhase: "",
+    streamCharCount: 0,
     error: "",
     model: null,
     sending: true
@@ -2052,9 +2073,9 @@ function updateTranslateBatchLiveDom(batch) {
   }
   if (answer) {
     const answerText = batch.answer.trim();
-    answer.textContent = answerText
+    answer.textContent = batch.answerReady && answerText
       ? (answerText.length <= 8000 ? answerText : `…\n${answerText.slice(answerText.length - 8000)}`)
-      : "ממתין לסיום התשובה…";
+      : translateBatchAnswerLabel(batch);
   }
   if (errorEl) {
     errorEl.textContent = batch.error || "";
@@ -2086,7 +2107,7 @@ function renderTranslateLivePanels() {
         </div>
         <div>
           <span>תשובה</span>
-          <pre data-live="answer">${escapeHtml(batch.answer.trim() || "אין תשובה להצגה.")}</pre>
+          <pre data-live="answer">${escapeHtml(batch.answerReady && batch.answer.trim() ? batch.answer.trim() : translateBatchAnswerLabel(batch))}</pre>
         </div>
       </div>
     </div>
@@ -2180,6 +2201,11 @@ function parseTranslateResponse(response, places) {
       hours: text(value.hours)
     };
   });
+  if (Object.keys(result).length !== places.length) {
+    const err = new Error(`ה-AI החזיר ${Object.keys(result).length} מתוך ${places.length} תרגומים. נסה שוב.`);
+    err.incompleteResponse = true;
+    throw err;
+  }
   return result;
 }
 
@@ -2216,32 +2242,31 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
     onReasoningDelta: (delta) => {
       const batch = state.translateLiveBatches[batchIndex];
       if (!batch) return;
-      patchTranslateBatchLive(batchIndex, { reasoning: appendLiveText(batch.reasoning, delta) });
+      patchTranslateBatchLive(batchIndex, {
+        streamPhase: "thinking",
+        reasoning: appendLiveText(batch.reasoning, delta)
+      });
     },
     onContentDelta: (delta) => {
       const batch = state.translateLiveBatches[batchIndex];
       if (!batch) return;
-      patchTranslateBatchLive(batchIndex, { answer: appendLiveText(batch.answer, delta) });
-    },
-    onText: (value) => {
-      const batch = state.translateLiveBatches[batchIndex];
-      if (!batch) return;
-      const next = text(value);
-      if (next.length >= text(batch.answer).length) {
-        patchTranslateBatchLive(batchIndex, { answer: next });
-      }
+      patchTranslateBatchLive(batchIndex, {
+        streamPhase: "answering",
+        streamCharCount: (batch.streamCharCount || 0) + text(delta).length,
+        answerReady: false
+      });
     }
   });
   const batch = state.translateLiveBatches[batchIndex];
   const answerText = text(payload.text);
+  if (!payload.done) {
+    const err = new Error("התשובה מה-AI לא הסתיימה. נסה שוב.");
+    err.truncatedStream = true;
+    throw err;
+  }
   if (!answerText.trim()) {
     const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
     err.emptyResponse = true;
-    throw err;
-  }
-  if (payload.done === false && !answerText.trim()) {
-    const err = new Error("התשובה מה-AI נקטעה לפני הסיום. נסה שוב.");
-    err.truncatedStream = true;
     throw err;
   }
   const model = payload.model || batch?.model || state.translateAiModel;
@@ -2250,6 +2275,8 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
     model,
     sending: false,
     answer: answerText,
+    answerReady: true,
+    streamPhase: "done",
     reasoning: reasoningText
   });
   return parseTranslateResponse(answerText, places);
@@ -2259,6 +2286,7 @@ function isTranslateBatchRetryableError(error) {
   return Boolean(
     error?.emptyResponse
     || error?.truncatedStream
+    || error?.incompleteResponse
     || error?.aiError === "empty_content"
     || error instanceof SyntaxError
     || error?.name === "SyntaxError"
@@ -2275,7 +2303,14 @@ async function requestTranslateBatchRobust(places, lang, batchIndex) {
   }
   if (state.translateThinkingEnabled) {
     try {
-      patchTranslateBatchLive(batchIndex, { answer: "", error: "", sending: true });
+      patchTranslateBatchLive(batchIndex, {
+        answer: "",
+        answerReady: false,
+        streamPhase: "",
+        streamCharCount: 0,
+        error: "",
+        sending: true
+      });
       setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב בלי מצב חשיבה...`);
       return await requestTranslateBatch(places, lang, batchIndex, { noThinking: true });
     } catch (error) {
@@ -5821,7 +5856,7 @@ async function readDeepSeekResponse(response, handlers = {}) {
     if (payload.reasoning) handlers.onReasoningDelta?.(payload.reasoning);
     if (payload.text) handlers.onText?.(payload.text);
     handlers.render?.();
-    return payload;
+    return { ...payload, done: Boolean(text(payload.text).trim()) };
   }
 
   const reader = response.body.getReader();
@@ -5888,7 +5923,7 @@ async function readDeepSeekResponse(response, handlers = {}) {
 
   if (buffer.trim()) processPart(buffer);
 
-  return { text: fullText, reasoning: fullReasoning, model, done: streamDone || Boolean(fullText.trim()) };
+  return { text: fullText, reasoning: fullReasoning, model, done: streamDone };
 }
 
 function parseSseData(rawEvent) {
