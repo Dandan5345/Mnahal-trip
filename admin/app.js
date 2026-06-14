@@ -150,7 +150,8 @@ const state = {
   translateAiModel: storedAiPreference("translate", "model", "deepseek-v4-pro"),
   translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "true") !== "false",
   translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "high"),
-  translateLiveBatches: [],
+  translateLiveReasoning: "",
+  translateLiveAnswer: "",
   translateLiveModel: null,
   aiBusyNoticeOpen: false
 };
@@ -287,12 +288,8 @@ Translate ONLY these four free-text fields into ${targetEnglish}: name, shortDes
 Keep proper nouns sensible and natural for ${targetEnglish} readers (use the common ${targetEnglish} name of well-known places when one exists).
 If a source field is empty, return an empty string "" for it.
 
-Return STRICT JSON ONLY. No markdown, no code fences, no prose, no comments, no extra keys.
-
-Workflow for each batch:
-1. Read ALL places in the batch together.
-2. Think through the translations for the entire batch in one reasoning pass (do NOT alternate think/answer per place).
-3. After finishing your reasoning, output ONE single complete JSON object that contains every place_id from the input in the same response.
+Return STRICT JSON ONLY. No markdown, no code fences, no prose, no comments, no extra keys, no text before or after the JSON object.
+Your entire answer must be exactly one valid JSON object that starts with "{" and ends with "}".
 
 The output MUST be a single JSON object keyed by each place_id, where each value has ONLY these four translated fields:
 {
@@ -304,6 +301,7 @@ Hard rules:
 - Do NOT translate, add, or include any other fields. Specifically do NOT touch type, foodType, reservationLabel, location, or address — those are localized separately by the app and must stay as-is (Hebrew).
 - Each value object must contain exactly these keys: name, shortDescription, description, hours.
 - Never invent place_ids, names, or content that did not appear in the input.
+- The JSON must include every place_id from the input batch, with no missing keys and no extra keys.
 `;
 }
 
@@ -1195,7 +1193,22 @@ function renderPage() {
               </button>
             </div>
             <p class="status-line" id="translateStatus"></p>
-            <div class="translate-live-stack is-hidden" id="translateLivePanels"></div>
+            <div class="duplicate-live-panel is-hidden" id="translateLivePanel">
+              <div class="duplicate-live-heading">
+                <strong id="translateLiveTitle">תשובת DeepSeek האחרונה</strong>
+                <span id="translateLiveMeta"></span>
+              </div>
+              <div class="duplicate-live-grid">
+                <div>
+                  <span>חשיבה</span>
+                  <pre id="translateLiveReasoning"></pre>
+                </div>
+                <div>
+                  <span>תשובה</span>
+                  <pre id="translateLiveAnswer"></pre>
+                </div>
+              </div>
+            </div>
           </article>
         </div>
 
@@ -1894,9 +1907,10 @@ async function loadTranslatePlaces() {
   state.translatePlaces = places.sort((a, b) => text(a.name).localeCompare(text(b.name), "he"));
   state.selectedTranslateIds.clear();
   state.translatePending = {};
-  state.translateLiveBatches = [];
+  state.translateLiveReasoning = "";
+  state.translateLiveAnswer = "";
   renderTranslatePlaces();
-  renderTranslateLivePanels();
+  renderTranslateLivePanel();
   updateTranslateSaveButton();
   setStatus("translateStatus", `נטענו ${places.length} כרטיסיות ברדיוס ${state.translateRadiusKm} ק"מ מ-${dest.label}.`);
 }
@@ -1982,7 +1996,7 @@ function syncTranslateAiControls() {
   }
   const note = $("translateAiModeNote");
   if (note) {
-    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · ${TRANSLATE_AI_BATCH_SIZE} כרטיסיות במנה · JSON מלא רק בסיום.</span>`;
+    note.innerHTML = `<i data-lucide="brain-circuit" aria-hidden="true"></i><span>${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)} · ${TRANSLATE_AI_BATCH_SIZE} כרטיסיות במנה · JSON בלבד.</span>`;
     refreshIcons();
   }
   const runButton = $("runTranslateButton");
@@ -2002,8 +2016,6 @@ function buildTranslatePrompt(places) {
   return JSON.stringify({
     task: "Translate the free-text fields of these TripInspo place cards.",
     target_language: translateLangConfig(state.translateLang).english,
-    batch_size: places.length,
-    workflow: "Think through every place in this batch first, then return one single complete JSON object containing all place_id keys.",
     places: places.map((place) => ({
       place_id: place.id,
       name: text(place.name),
@@ -2012,16 +2024,6 @@ function buildTranslatePrompt(places) {
       hours: text(place.hours)
     }))
   });
-}
-
-function translateBatchAnswerLabel(batch) {
-  if (batch.streamPhase === "thinking") return "חושב על כל המנה…";
-  if (batch.streamPhase === "answering") {
-    const count = batch.streamCharCount || 0;
-    return count ? `כותב JSON מלא (${count} תווים)…` : "כותב JSON מלא…";
-  }
-  if (batch.sending) return "ממתין לסיום התשובה…";
-  return "אין תשובה להצגה.";
 }
 
 function copyTranslatePrompt() {
@@ -2033,163 +2035,28 @@ function copyTranslatePrompt() {
   copyText(buildTranslatePrompt(places), "פרומפט התרגום הועתק.", "translateStatus");
 }
 
-function initTranslateLiveBatches(batches) {
-  state.translateLiveBatches = batches.map((batch, index) => ({
-    batchIndex: index + 1,
-    batchTotal: batches.length,
-    placeCount: batch.length,
-    reasoning: "",
-    answer: "",
-    answerReady: false,
-    streamPhase: "",
-    streamCharCount: 0,
-    error: "",
-    model: null,
-    sending: true
-  }));
-  renderTranslateLivePanels();
-}
-
-function updateTranslateBatchLiveDom(batch) {
-  const panel = document.querySelector(`[data-translate-batch="${batch.batchIndex}"]`);
-  if (!panel) return false;
-  const title = panel.querySelector("[data-live-title]");
-  const meta = panel.querySelector("[data-live-meta]");
-  const reasoning = panel.querySelector('[data-live="reasoning"]');
-  const answer = panel.querySelector('[data-live="answer"]');
-  const errorEl = panel.querySelector("[data-live-error]");
-  if (title) {
-    const base = `מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות)`;
-    title.textContent = batch.error
-      ? `${base} · נכשל`
-      : state.translateSending && batch.sending ? `${base} · מתרגם…` : base;
+function renderTranslateLivePanel() {
+  const panel = $("translateLivePanel");
+  if (!panel) return;
+  const hasContent = state.translateLiveReasoning.trim() || state.translateLiveAnswer.trim();
+  panel.classList.toggle("is-hidden", !hasContent);
+  if ($("translateLiveTitle")) {
+    $("translateLiveTitle").textContent = state.translateSending ? "DeepSeek Live" : "תשובת DeepSeek האחרונה";
   }
-  if (meta) meta.textContent = aiModeSummary(batch.model || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort);
-  if (reasoning) {
-    const reasoningText = batch.reasoning.trim();
-    reasoning.textContent = reasoningText
-      ? (reasoningText.length <= 8000 ? reasoningText : `…\n${reasoningText.slice(reasoningText.length - 8000)}`)
-      : "אין תוכן חשיבה להצגה.";
+  if ($("translateLiveMeta")) {
+    $("translateLiveMeta").textContent = aiModeSummary(state.translateLiveModel || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort);
   }
-  if (answer) {
-    const answerText = batch.answer.trim();
-    answer.textContent = batch.answerReady && answerText
-      ? (answerText.length <= 8000 ? answerText : `…\n${answerText.slice(answerText.length - 8000)}`)
-      : translateBatchAnswerLabel(batch);
+  if ($("translateLiveReasoning")) {
+    $("translateLiveReasoning").textContent = state.translateLiveReasoning.trim() || "אין תוכן חשיבה להצגה.";
   }
-  if (errorEl) {
-    errorEl.textContent = batch.error || "";
-    errorEl.classList.toggle("is-hidden", !batch.error);
+  if ($("translateLiveAnswer")) {
+    $("translateLiveAnswer").textContent = state.translateLiveAnswer.trim() || "אין תשובה להצגה.";
   }
-  return true;
-}
-
-function renderTranslateLivePanels() {
-  const container = $("translateLivePanels");
-  if (!container) return;
-  const batches = state.translateLiveBatches;
-  container.classList.toggle("is-hidden", !batches.length);
-  if (!batches.length) {
-    container.innerHTML = "";
-    return;
-  }
-  container.innerHTML = batches.map((batch) => `
-    <div class="duplicate-live-panel" data-translate-batch="${batch.batchIndex}">
-      <div class="duplicate-live-heading">
-        <strong data-live-title>מנה ${batch.batchIndex}/${batch.batchTotal} (${batch.placeCount} כרטיסיות)${batch.error ? " · נכשל" : batch.sending ? " · מתרגם…" : ""}</strong>
-        <span data-live-meta>${escapeHtml(aiModeSummary(batch.model || state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort))}</span>
-      </div>
-      <p class="translate-batch-error${batch.error ? "" : " is-hidden"}" data-live-error>${escapeHtml(batch.error || "")}</p>
-      <div class="duplicate-live-grid">
-        <div>
-          <span>חשיבה</span>
-          <pre data-live="reasoning">${escapeHtml(batch.reasoning.trim() || "אין תוכן חשיבה להצגה.")}</pre>
-        </div>
-        <div>
-          <span>תשובה</span>
-          <pre data-live="answer">${escapeHtml(batch.answerReady && batch.answer.trim() ? batch.answer.trim() : translateBatchAnswerLabel(batch))}</pre>
-        </div>
-      </div>
-    </div>
-  `).join("");
-}
-
-function patchTranslateBatchLive(batchIndex, patch) {
-  const batch = state.translateLiveBatches[batchIndex];
-  if (!batch) return;
-  Object.assign(batch, patch);
-  if (!updateTranslateBatchLiveDom(batch)) renderTranslateLivePanels();
-}
-
-function extractBalancedObjectAfterKey(rawText, key) {
-  const source = text(rawText);
-  const needle = `"${String(key).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
-  const keyIndex = source.indexOf(needle);
-  if (keyIndex === -1) return null;
-  const colonIndex = source.indexOf(":", keyIndex + needle.length);
-  if (colonIndex === -1) return null;
-  let index = colonIndex + 1;
-  while (index < source.length && /\s/.test(source[index])) index += 1;
-  if (source[index] !== "{") return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  const start = index;
-  for (; index < source.length; index += 1) {
-    const ch = source[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") depth += 1;
-    else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  return null;
-}
-
-function salvagePlaceTranslationsJson(rawText, placeIds) {
-  const result = {};
-  placeIds.forEach((id) => {
-    const objectText = extractBalancedObjectAfterKey(rawText, id);
-    if (!objectText) return;
-    try {
-      result[id] = JSON.parse(objectText);
-    } catch (_) {}
-  });
-  return result;
 }
 
 function parseTranslateResponse(response, places) {
   const byId = new Map(places.map((place) => [place.id, place]));
-  const rawText = text(response);
-  if (!rawText.trim()) {
-    const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
-    err.emptyResponse = true;
-    throw err;
-  }
-  const jsonText = extractJsonObjectText(rawText);
-  let decoded;
-  try {
-    decoded = JSON.parse(jsonText);
-  } catch (parseError) {
-    decoded = salvagePlaceTranslationsJson(rawText, places.map((place) => place.id));
-    if (!Object.keys(decoded).length) throw parseError;
-  }
+  const decoded = JSON.parse(extractJsonObjectText(response));
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return {};
   const result = {};
   Object.entries(decoded).forEach(([id, value]) => {
@@ -2201,17 +2068,10 @@ function parseTranslateResponse(response, places) {
       hours: text(value.hours)
     };
   });
-  if (Object.keys(result).length !== places.length) {
-    const err = new Error(`ה-AI החזיר ${Object.keys(result).length} מתוך ${places.length} תרגומים. נסה שוב.`);
-    err.incompleteResponse = true;
-    throw err;
-  }
   return result;
 }
 
-async function requestTranslateBatch(places, lang, batchIndex, { noThinking = false } = {}) {
-  const thinkingEnabled = noThinking ? false : state.translateThinkingEnabled;
-  const reasoningEffort = noThinking ? "off" : state.translateReasoningEffort;
+async function requestTranslateBatch(places, lang) {
   const idToken = await state.user.getIdToken();
   const response = await fetch(DUPLICATE_AI_ENDPOINT, {
     method: "POST",
@@ -2225,9 +2085,9 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
       userPrompt: buildTranslatePrompt(places),
       maxTokens: 32768,
       preferredModel: state.translateAiModel,
-      thinkingEnabled,
-      reasoningEffort,
-      temperature: thinkingTemperature(thinkingEnabled, reasoningEffort),
+      thinkingEnabled: state.translateThinkingEnabled,
+      reasoningEffort: state.translateReasoningEffort,
+      temperature: thinkingTemperature(state.translateThinkingEnabled, state.translateReasoningEffort),
       jsonObjectResponse: true,
       stream: true
     })
@@ -2237,93 +2097,21 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
     getFallbackModel: () => state.translateAiModel,
     onModel: (model) => {
       state.translateLiveModel = model;
-      patchTranslateBatchLive(batchIndex, { model });
     },
     onReasoningDelta: (delta) => {
-      const batch = state.translateLiveBatches[batchIndex];
-      if (!batch) return;
-      patchTranslateBatchLive(batchIndex, {
-        streamPhase: "thinking",
-        reasoning: appendLiveText(batch.reasoning, delta)
-      });
+      state.translateLiveReasoning = appendLiveText(state.translateLiveReasoning, delta);
     },
     onContentDelta: (delta) => {
-      const batch = state.translateLiveBatches[batchIndex];
-      if (!batch) return;
-      patchTranslateBatchLive(batchIndex, {
-        streamPhase: "answering",
-        streamCharCount: (batch.streamCharCount || 0) + text(delta).length,
-        answerReady: false
-      });
-    }
+      state.translateLiveAnswer = appendLiveText(state.translateLiveAnswer, delta);
+    },
+    onText: (value) => {
+      const next = text(value);
+      if (next.length >= text(state.translateLiveAnswer).length) state.translateLiveAnswer = next;
+    },
+    render: renderTranslateLivePanel
   });
-  const batch = state.translateLiveBatches[batchIndex];
-  const answerText = text(payload.text);
-  if (!payload.done) {
-    const err = new Error("התשובה מה-AI לא הסתיימה. נסה שוב.");
-    err.truncatedStream = true;
-    throw err;
-  }
-  if (!answerText.trim()) {
-    const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
-    err.emptyResponse = true;
-    throw err;
-  }
-  const model = payload.model || batch?.model || state.translateAiModel;
-  const reasoningText = text(payload.reasoning) || text(batch?.reasoning);
-  patchTranslateBatchLive(batchIndex, {
-    model,
-    sending: false,
-    answer: answerText,
-    answerReady: true,
-    streamPhase: "done",
-    reasoning: reasoningText
-  });
-  return parseTranslateResponse(answerText, places);
-}
-
-function isTranslateBatchRetryableError(error) {
-  return Boolean(
-    error?.emptyResponse
-    || error?.truncatedStream
-    || error?.incompleteResponse
-    || error?.aiError === "empty_content"
-    || error instanceof SyntaxError
-    || error?.name === "SyntaxError"
-  );
-}
-
-async function requestTranslateBatchRobust(places, lang, batchIndex) {
-  let lastError;
-  try {
-    return await requestTranslateBatch(places, lang, batchIndex, { noThinking: false });
-  } catch (error) {
-    lastError = error;
-    if (!isTranslateBatchRetryableError(error)) throw error;
-  }
-  if (state.translateThinkingEnabled) {
-    try {
-      patchTranslateBatchLive(batchIndex, {
-        answer: "",
-        answerReady: false,
-        streamPhase: "",
-        streamCharCount: 0,
-        error: "",
-        sending: true
-      });
-      setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב בלי מצב חשיבה...`);
-      return await requestTranslateBatch(places, lang, batchIndex, { noThinking: true });
-    } catch (error) {
-      lastError = error;
-      if (!isTranslateBatchRetryableError(error)) throw error;
-    }
-  }
-  if (places.length <= 1) throw lastError;
-  const mid = Math.ceil(places.length / 2);
-  setStatus("translateStatus", `מנה ${batchIndex + 1} גדולה מדי — מפצל ל-${mid} + ${places.length - mid} כרטיסיות...`);
-  const left = await requestTranslateBatchRobust(places.slice(0, mid), lang, batchIndex);
-  const right = await requestTranslateBatchRobust(places.slice(mid), lang, batchIndex);
-  return { ...left, ...right };
+  state.translateLiveModel = payload.model || state.translateLiveModel || state.translateAiModel;
+  return parseTranslateResponse(payload.text || state.translateLiveAnswer, places);
 }
 
 async function runAiTranslate() {
@@ -2342,53 +2130,39 @@ async function runAiTranslate() {
   const batches = chunkArray(places, TRANSLATE_AI_BATCH_SIZE);
   try {
     state.translateSending = true;
-    state.translateLiveBatches = [];
+    state.translateLiveReasoning = "";
+    state.translateLiveAnswer = "";
     state.translateLiveModel = null;
     syncTranslateAiControls();
-    initTranslateLiveBatches(batches);
+    renderTranslateLivePanel();
     await ensureFreshAdminAuthToken();
-    setStatus("translateStatus", `שולח ${places.length} כרטיסיות (${batches.length} מנות) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
-    let readyCount = 0;
-    const failures = [];
-    // Process the batches one at a time, exactly like the opening-hours and
-    // duplicate tools. Firing several streaming DeepSeek requests in parallel
-    // truncates their responses ("Unterminated string in JSON"); sequential
-    // requests each complete cleanly. A failing batch still never aborts the
-    // rest, and an empty/truncated batch is retried once with thinking off.
-    for (const [index, batch] of batches.entries()) {
-      setStatus("translateStatus", `מעבד מנה ${index + 1} מתוך ${batches.length}...`);
-      try {
-        const parsed = await requestTranslateBatchRobust(batch, lang, index);
-        readyCount += stageTranslatePending(parsed, lang);
-        renderTranslatePlaces();
-        updateTranslateSaveButton();
-      } catch (error) {
-        const message = parseWorkflowErrorMessage(error?.message || String(error));
-        failures.push(`מנה ${index + 1}: ${message}`);
-        patchTranslateBatchLive(index, { sending: false, error: message });
+    const merged = {};
+    for (let index = 0; index < batches.length; index += 1) {
+      const batch = batches[index];
+      setStatus("translateStatus", batches.length > 1
+        ? `שולח מנה ${index + 1}/${batches.length} (${batch.length} כרטיסיות) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`
+        : `שולח תרגום ל-${langConfig.label} עם ${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
+      if (index > 0) {
+        state.translateLiveReasoning = "";
+        state.translateLiveAnswer = "";
+        renderTranslateLivePanel();
       }
+      const parsed = await requestTranslateBatch(batch, lang);
+      Object.assign(merged, parsed);
     }
-    const modelLabel = modelDisplayName(state.translateLiveModel || state.translateAiModel);
-    const failSummary = failures.length
-      ? `${failures.length} מנות נכשלו: ${failures.slice(0, 2).join(" | ")}${failures.length > 2 ? ` ועוד ${failures.length - 2}` : ""}`
-      : "";
-    if (readyCount) {
-      setStatus("translateStatus", failures.length
-        ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות, אבל ${failSummary}. לחץ "שמור את כל השינויים" כדי לשמור את המוכנים.`
-        : `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelLabel}${batches.length > 1 ? ` · ${batches.length} מנות` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`, failures.length > 0);
-      showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
-    } else {
-      setStatus("translateStatus", failures.length
-        ? `תרגום ה-AI נכשל: ${failSummary}`
-        : `${modelLabel} לא החזיר תרגומים תקינים.`, true);
-    }
+    const readyCount = stageTranslatePending(merged, lang);
+    renderTranslatePlaces();
+    updateTranslateSaveButton();
+    setStatus("translateStatus", readyCount
+      ? `${langConfig.label}: ${readyCount} תרגומים מוכנים מתוך ${places.length} כרטיסיות (${modelDisplayName(state.translateLiveModel || state.translateAiModel)}${batches.length > 1 ? ` · ${batches.length} מנות` : ""}). לחץ "שמור את כל השינויים" כדי לשמור.`
+      : `${modelDisplayName(state.translateLiveModel || state.translateAiModel)} לא החזיר תרגומים תקינים.`);
+    if (readyCount) showToast(`${readyCount} תרגומים ל${langConfig.label} מוכנים לשמירה.`);
   } catch (error) {
     setStatus("translateStatus", `תרגום ה-AI נכשל: ${parseWorkflowErrorMessage(error.message)}`, true);
   } finally {
     state.translateSending = false;
-    state.translateLiveBatches.forEach((batch) => { batch.sending = false; });
     syncTranslateAiControls();
-    renderTranslateLivePanels();
+    renderTranslateLivePanel();
   }
 }
 
