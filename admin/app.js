@@ -1855,6 +1855,7 @@ function bindTranslateTools() {
     langSelect.addEventListener("change", (event) => {
       state.translateLang = event.target.value === "fr" ? "fr" : "en";
       syncTranslateFilterControls();
+      pruneTranslateSelectionToVisible();
       renderTranslatePlaces();
     });
   }
@@ -1863,6 +1864,7 @@ function bindTranslateTools() {
     syncTranslateFilterControls();
     filterSelect.addEventListener("change", (event) => {
       state.translateFilter = event.target.value || "all";
+      pruneTranslateSelectionToVisible();
       renderTranslatePlaces();
     });
   }
@@ -1924,6 +1926,13 @@ function filteredTranslatePlaces() {
   return applyTranslationFilter(state.translatePlaces, state.translateFilter, state.translateLang);
 }
 
+function pruneTranslateSelectionToVisible() {
+  const visibleIds = new Set(filteredTranslatePlaces().map((place) => place.id));
+  [...state.selectedTranslateIds].forEach((id) => {
+    if (!visibleIds.has(id)) state.selectedTranslateIds.delete(id);
+  });
+}
+
 function toggleAllTranslate() {
   const places = filteredTranslatePlaces();
   const set = state.selectedTranslateIds;
@@ -1935,6 +1944,10 @@ function toggleAllTranslate() {
 
 function renderTranslatePlaces() {
   const visible = filteredTranslatePlaces();
+  const visibleIds = new Set(visible.map((place) => place.id));
+  [...state.selectedTranslateIds].forEach((id) => {
+    if (!visibleIds.has(id)) state.selectedTranslateIds.delete(id);
+  });
   if ($("translateLoadedPill")) $("translateLoadedPill").textContent = `${state.translatePlaces.length} כרטיסיות`;
   if ($("translateFilteredPill")) $("translateFilteredPill").textContent = `${visible.length} מוצגים`;
   if ($("translateSelectedPill")) $("translateSelectedPill").textContent = `${state.selectedTranslateIds.size} מסומנים`;
@@ -2010,7 +2023,8 @@ function syncTranslateAiControls() {
 }
 
 function selectedTranslatePlaces() {
-  return state.translatePlaces.filter((place) => state.selectedTranslateIds.has(place.id));
+  const visibleIds = new Set(filteredTranslatePlaces().map((place) => place.id));
+  return state.translatePlaces.filter((place) => visibleIds.has(place.id) && state.selectedTranslateIds.has(place.id));
 }
 
 function buildTranslatePrompt(places) {
