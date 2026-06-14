@@ -148,8 +148,8 @@ const state = {
   translateSaving: false,
   translatePending: {},
   translateAiModel: storedAiPreference("translate", "model", "deepseek-v4-pro"),
-  translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "true") !== "false",
-  translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "high"),
+  translateThinkingEnabled: storedAiPreference("translate", "thinkingEnabled", "false") === "true",
+  translateReasoningEffort: storedAiPreference("translate", "reasoningEffort", "off"),
   translateLiveBatches: [],
   translateLiveModel: null,
   aiBusyNoticeOpen: false
@@ -157,7 +157,7 @@ const state = {
 
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const DUPLICATE_AI_BATCH_SIZE = 40;
-const TRANSLATE_AI_BATCH_SIZE = 5;
+const TRANSLATE_AI_BATCH_SIZE = 3;
 const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
@@ -2090,15 +2090,75 @@ function patchTranslateBatchLive(batchIndex, patch) {
   if (!updateTranslateBatchLiveDom(batch)) renderTranslateLivePanels();
 }
 
+function extractBalancedObjectAfterKey(rawText, key) {
+  const source = text(rawText);
+  const needle = `"${String(key).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+  const keyIndex = source.indexOf(needle);
+  if (keyIndex === -1) return null;
+  const colonIndex = source.indexOf(":", keyIndex + needle.length);
+  if (colonIndex === -1) return null;
+  let index = colonIndex + 1;
+  while (index < source.length && /\s/.test(source[index])) index += 1;
+  if (source[index] !== "{") return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  const start = index;
+  for (; index < source.length; index += 1) {
+    const ch = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
+function salvagePlaceTranslationsJson(rawText, placeIds) {
+  const result = {};
+  placeIds.forEach((id) => {
+    const objectText = extractBalancedObjectAfterKey(rawText, id);
+    if (!objectText) return;
+    try {
+      result[id] = JSON.parse(objectText);
+    } catch (_) {}
+  });
+  return result;
+}
+
 function parseTranslateResponse(response, places) {
   const byId = new Map(places.map((place) => [place.id, place]));
-  const jsonText = extractJsonObjectText(response);
-  if (!jsonText.trim()) {
+  const rawText = text(response);
+  if (!rawText.trim()) {
     const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
     err.emptyResponse = true;
     throw err;
   }
-  const decoded = JSON.parse(jsonText);
+  const jsonText = extractJsonObjectText(rawText);
+  let decoded;
+  try {
+    decoded = JSON.parse(jsonText);
+  } catch (parseError) {
+    decoded = salvagePlaceTranslationsJson(rawText, places.map((place) => place.id));
+    if (!Object.keys(decoded).length) throw parseError;
+  }
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return {};
   const result = {};
   Object.entries(decoded).forEach(([id, value]) => {
@@ -2146,22 +2206,64 @@ async function requestTranslateBatch(places, lang, batchIndex, { noThinking = fa
     onReasoningDelta: (delta) => {
       const batch = state.translateLiveBatches[batchIndex];
       if (!batch) return;
-      patchTranslateBatchLive(batchIndex, { reasoning: appendLiveText(batch.reasoning, delta) });
+      patchTranslateBatchLive(batchIndex, { reasoning: appendLiveTextDisplay(batch.reasoning, delta) });
     },
     onContentDelta: (delta) => {
       const batch = state.translateLiveBatches[batchIndex];
       if (!batch) return;
-      patchTranslateBatchLive(batchIndex, { answer: appendLiveText(batch.answer, delta) });
+      patchTranslateBatchLive(batchIndex, { answer: appendLiveTextDisplay(batch.answer, delta) });
     },
     onText: (value) => {
       patchTranslateBatchLive(batchIndex, { answer: value });
     }
   });
   const batch = state.translateLiveBatches[batchIndex];
-  const answerText = payload.text || batch?.answer || "";
+  const answerText = text(payload.text);
+  if (!answerText.trim()) {
+    const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
+    err.emptyResponse = true;
+    throw err;
+  }
   const model = payload.model || batch?.model || state.translateAiModel;
   patchTranslateBatchLive(batchIndex, { model, sending: false, answer: answerText });
   return parseTranslateResponse(answerText, places);
+}
+
+function isTranslateBatchRetryableError(error) {
+  return Boolean(
+    error?.emptyResponse
+    || error?.aiError === "empty_content"
+    || error instanceof SyntaxError
+    || error?.name === "SyntaxError"
+  );
+}
+
+async function requestTranslateBatchRobust(places, lang, batchIndex, { forceNoThinking = false } = {}) {
+  const attempts = forceNoThinking
+    ? [{ noThinking: true, label: "בלי חשיבה" }]
+    : [
+        { noThinking: false, label: "רגיל" },
+        ...(state.translateThinkingEnabled ? [{ noThinking: true, label: "בלי חשיבה" }] : [])
+      ];
+  let lastError;
+  for (const attempt of attempts) {
+    try {
+      patchTranslateBatchLive(batchIndex, { reasoning: "", answer: "", error: "", sending: true });
+      if (attempt.label !== "רגיל") {
+        setStatus("translateStatus", `מנה ${batchIndex + 1} — מנסה שוב ${attempt.label}...`);
+      }
+      return await requestTranslateBatch(places, lang, batchIndex, { noThinking: attempt.noThinking });
+    } catch (error) {
+      lastError = error;
+      if (!isTranslateBatchRetryableError(error)) throw error;
+    }
+  }
+  if (places.length <= 1) throw lastError;
+  const mid = Math.ceil(places.length / 2);
+  setStatus("translateStatus", `מנה ${batchIndex + 1} גדולה מדי — מפצל ל-${mid} + ${places.length - mid} כרטיסיות...`);
+  const left = await requestTranslateBatchRobust(places.slice(0, mid), lang, batchIndex, { forceNoThinking: true });
+  const right = await requestTranslateBatchRobust(places.slice(mid), lang, batchIndex, { forceNoThinking: true });
+  return { ...left, ...right };
 }
 
 async function runAiTranslate() {
@@ -2196,19 +2298,7 @@ async function runAiTranslate() {
     for (const [index, batch] of batches.entries()) {
       setStatus("translateStatus", `מעבד מנה ${index + 1} מתוך ${batches.length}...`);
       try {
-        let parsed;
-        try {
-          parsed = await requestTranslateBatch(batch, lang, index);
-        } catch (error) {
-          const wasThinking = state.translateThinkingEnabled;
-          const starvedByThinking = error?.emptyResponse
-            || error?.aiError === "empty_content"
-            || error instanceof SyntaxError;
-          if (!wasThinking || !starvedByThinking) throw error;
-          patchTranslateBatchLive(index, { reasoning: "", answer: "", error: "", sending: true });
-          setStatus("translateStatus", `מנה ${index + 1} נקטעה — מנסה שוב בלי מצב חשיבה...`);
-          parsed = await requestTranslateBatch(batch, lang, index, { noThinking: true });
-        }
+        const parsed = await requestTranslateBatchRobust(batch, lang, index);
         readyCount += stageTranslatePending(parsed, lang);
         renderTranslatePlaces();
         updateTranslateSaveButton();
@@ -5618,10 +5708,10 @@ async function requestDuplicateAiBatch(candidates, destinationQuery, batchIndex,
       state.duplicateLiveModel = model;
     },
     onReasoningDelta: (delta) => {
-      state.duplicateLiveReasoning = appendLiveText(state.duplicateLiveReasoning, delta);
+      state.duplicateLiveReasoning = appendLiveTextDisplay(state.duplicateLiveReasoning, delta);
     },
     onContentDelta: (delta) => {
-      state.duplicateLiveAnswer = appendLiveText(state.duplicateLiveAnswer, delta);
+      state.duplicateLiveAnswer = appendLiveTextDisplay(state.duplicateLiveAnswer, delta);
     },
     onText: (value) => {
       state.duplicateLiveAnswer = value;
@@ -5629,7 +5719,11 @@ async function requestDuplicateAiBatch(candidates, destinationQuery, batchIndex,
     render: renderDuplicateLivePanel
   });
   state.duplicateLiveModel = payload.model || state.duplicateLiveModel || state.duplicateAiModel;
-  return parseDuplicateResponse(payload.text || state.duplicateLiveAnswer, candidates);
+  const answerText = text(payload.text);
+  if (!answerText.trim()) {
+    throw new Error("ה-AI החזיר תשובה ריקה. נסה שוב או הורד את רמת החשיבה.");
+  }
+  return parseDuplicateResponse(answerText, candidates);
 }
 
 async function runAiDuplicateCheck() {
@@ -5693,6 +5787,11 @@ async function readDeepSeekResponse(response, handlers = {}) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/event-stream") || !response.body) {
     const payload = await response.json();
+    if (payload.error) {
+      const err = new Error(payload.detail || payload.error);
+      err.aiError = payload.error;
+      throw err;
+    }
     if (payload.model) handlers.onModel?.(payload.model);
     if (payload.reasoning) handlers.onReasoningDelta?.(payload.reasoning);
     if (payload.text) handlers.onText?.(payload.text);
@@ -5707,49 +5806,59 @@ async function readDeepSeekResponse(response, handlers = {}) {
   let fullReasoning = "";
   let model = handlers.getFallbackModel?.() || state.duplicateAiModel;
 
+  const handleEvent = (event) => {
+    if (event.error) {
+      const err = new Error(event.detail || event.error);
+      err.aiError = event.error;
+      throw err;
+    }
+    if (event.model) {
+      model = event.model;
+      handlers.onModel?.(model);
+    }
+    const reasoningDelta = event.reasoningDelta ?? event.reasoning;
+    if (reasoningDelta) {
+      fullReasoning = appendLiveText(fullReasoning, reasoningDelta);
+      handlers.onReasoningDelta?.(reasoningDelta);
+    }
+    const contentDelta = event.contentDelta ?? event.delta;
+    if (contentDelta) {
+      fullText = appendLiveText(fullText, contentDelta);
+      handlers.onContentDelta?.(contentDelta);
+    }
+    if (event.text) {
+      fullText = event.text;
+      handlers.onText?.(fullText);
+    }
+    handlers.render?.();
+  };
+
+  const processPart = (part) => {
+    const lines = part.split("\n").filter(Boolean);
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === "[DONE]") continue;
+      let event;
+      try {
+        event = JSON.parse(raw);
+      } catch (_) {
+        continue;
+      }
+      handleEvent(event);
+    }
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const parts = buffer.split("\n\n");
     buffer = parts.pop() || "";
-    for (const rawEvent of parts) {
-      const event = parseSseData(rawEvent);
-      if (!event) continue;
-      if (event.error) {
-        throw new Error(event.detail ? `${event.error}: ${event.detail}` : event.error);
-      }
-      if (event.model) {
-        model = event.model;
-        handlers.onModel?.(model);
-      }
-      if (event.reasoningDelta) {
-        fullReasoning += event.reasoningDelta;
-        handlers.onReasoningDelta?.(event.reasoningDelta);
-      }
-      if (event.contentDelta) {
-        handlers.onContentDelta?.(event.contentDelta);
-        fullText += event.contentDelta;
-      }
-      if (event.text) {
-        handlers.onText?.(event.text);
-        fullText = event.text;
-      }
-      handlers.render?.();
-    }
+    for (const part of parts) processPart(part);
   }
 
-  if (buffer.trim()) {
-    const event = parseSseData(buffer);
-    if (event?.error) {
-      throw new Error(event.detail ? `${event.error}: ${event.detail}` : event.error);
-    }
-    if (event?.text) {
-      fullText = event.text;
-      handlers.onText?.(event.text);
-      handlers.render?.();
-    }
-  }
+  if (buffer.trim()) processPart(buffer);
 
   return { text: fullText, reasoning: fullReasoning, model };
 }
@@ -5770,9 +5879,14 @@ function parseSseData(rawEvent) {
 }
 
 function appendLiveText(current, delta) {
-  if (!delta) return current;
-  const next = `${current}${delta}`;
-  return next.length <= 6000 ? next : next.slice(next.length - 6000);
+  const next = text(delta);
+  if (!next) return text(current);
+  return `${text(current)}${next}`;
+}
+
+function appendLiveTextDisplay(current, delta, maxLength = 6000) {
+  const next = appendLiveText(current, delta);
+  return next.length <= maxLength ? next : next.slice(next.length - maxLength);
 }
 
 function renderDuplicateLivePanel() {
