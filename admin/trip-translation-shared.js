@@ -177,7 +177,11 @@ export async function readDeepSeekResponse(response, handlers = {}) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/event-stream") || !response.body) {
     const payload = await response.json();
-    if (payload.error) throw new Error(payload.detail || payload.error);
+    if (payload.error) {
+      const err = new Error(payload.detail || payload.error);
+      err.aiError = payload.error;
+      throw err;
+    }
     if (payload.model) handlers.onModel?.(payload.model);
     if (payload.reasoning) handlers.onReasoningDelta?.(payload.reasoning);
     if (payload.text) handlers.onText?.(payload.text);
@@ -210,7 +214,11 @@ export async function readDeepSeekResponse(response, handlers = {}) {
         } catch (_) {
           continue;
         }
-        if (event.error) throw new Error(event.detail || event.error);
+        if (event.error) {
+          const err = new Error(event.detail || event.error);
+          err.aiError = event.error;
+          throw err;
+        }
         if (event.model) {
           model = event.model;
           handlers.onModel?.(model);

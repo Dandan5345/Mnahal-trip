@@ -158,6 +158,7 @@ const state = {
 const DUPLICATE_SEARCH_RADIUS_KM = 50;
 const DUPLICATE_AI_BATCH_SIZE = 40;
 const TRANSLATE_AI_BATCH_SIZE = 5;
+const TRANSLATE_AI_CONCURRENCY = 3;
 const DUPLICATE_NAME_MAX_EDITS = 4;
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro";
@@ -2094,7 +2095,9 @@ function parseTranslateResponse(response, places) {
   const byId = new Map(places.map((place) => [place.id, place]));
   const jsonText = extractJsonObjectText(response);
   if (!jsonText.trim()) {
-    throw new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
+    const err = new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הכרטיסיות, או הורד את רמת החשיבה.");
+    err.emptyResponse = true;
+    throw err;
   }
   const decoded = JSON.parse(jsonText);
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return {};
@@ -2111,7 +2114,9 @@ function parseTranslateResponse(response, places) {
   return result;
 }
 
-async function requestTranslateBatch(places, lang, batchIndex) {
+async function requestTranslateBatch(places, lang, batchIndex, { noThinking = false } = {}) {
+  const thinkingEnabled = noThinking ? false : state.translateThinkingEnabled;
+  const reasoningEffort = noThinking ? "off" : state.translateReasoningEffort;
   const idToken = await state.user.getIdToken();
   const response = await fetch(DUPLICATE_AI_ENDPOINT, {
     method: "POST",
@@ -2125,9 +2130,9 @@ async function requestTranslateBatch(places, lang, batchIndex) {
       userPrompt: buildTranslatePrompt(places),
       maxTokens: 32768,
       preferredModel: state.translateAiModel,
-      thinkingEnabled: state.translateThinkingEnabled,
-      reasoningEffort: state.translateReasoningEffort,
-      temperature: thinkingTemperature(state.translateThinkingEnabled, state.translateReasoningEffort),
+      thinkingEnabled,
+      reasoningEffort,
+      temperature: thinkingTemperature(thinkingEnabled, reasoningEffort),
       jsonObjectResponse: true,
       stream: true
     })
@@ -2182,24 +2187,36 @@ async function runAiTranslate() {
     initTranslateLiveBatches(batches);
     await ensureFreshAdminAuthToken();
     setStatus("translateStatus", batches.length > 1
-      ? `שולח ${batches.length} מנות במקביל (${places.length} כרטיסיות, עד ${TRANSLATE_AI_BATCH_SIZE} בכל מנה) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`
+      ? `שולח ${batches.length} מנות (${places.length} כרטיסיות, עד ${TRANSLATE_AI_BATCH_SIZE} בכל מנה, עד ${TRANSLATE_AI_CONCURRENCY} במקביל) ל-${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`
       : `שולח תרגום ל-${langConfig.label} עם ${aiModeSummary(state.translateAiModel, state.translateThinkingEnabled, state.translateReasoningEffort)}...`);
     let readyCount = 0;
-    // One failing batch must not abort the others — translate every batch
-    // independently and report partial success rather than discarding the
-    // batches that did succeed.
-    const outcomes = await Promise.allSettled(batches.map(async (batch, index) => {
-      const parsed = await requestTranslateBatch(batch, lang, index);
-      readyCount += stageTranslatePending(parsed, lang);
-      renderTranslatePlaces();
-      updateTranslateSaveButton();
-    }));
     const failures = [];
-    outcomes.forEach((outcome, index) => {
-      if (outcome.status !== "rejected") return;
-      const message = parseWorkflowErrorMessage(outcome.reason?.message || String(outcome.reason));
-      failures.push(`מנה ${index + 1}: ${message}`);
-      patchTranslateBatchLive(index, { sending: false, error: message });
+    // Each batch is an independent AI request with its own token budget — one
+    // failing batch must never abort the others. Cap how many run at once so we
+    // don't hammer the model with every batch simultaneously, and if a batch
+    // comes back empty (thinking burned its whole budget) retry it once with
+    // thinking off, which reliably returns the JSON content.
+    await mapWithConcurrency(batches, TRANSLATE_AI_CONCURRENCY, async (batch, index) => {
+      try {
+        let parsed;
+        try {
+          parsed = await requestTranslateBatch(batch, lang, index);
+        } catch (error) {
+          const wasThinking = state.translateThinkingEnabled;
+          const empty = error?.emptyResponse || error?.aiError === "empty_content";
+          if (!wasThinking || !empty) throw error;
+          patchTranslateBatchLive(index, { reasoning: "", answer: "", error: "", sending: true });
+          setStatus("translateStatus", `מנה ${index + 1} חזרה ריקה — מנסה שוב בלי מצב חשיבה...`);
+          parsed = await requestTranslateBatch(batch, lang, index, { noThinking: true });
+        }
+        readyCount += stageTranslatePending(parsed, lang);
+        renderTranslatePlaces();
+        updateTranslateSaveButton();
+      } catch (error) {
+        const message = parseWorkflowErrorMessage(error?.message || String(error));
+        failures.push(`מנה ${index + 1}: ${message}`);
+        patchTranslateBatchLive(index, { sending: false, error: message });
+      }
     });
     const modelLabel = modelDisplayName(state.translateLiveModel || state.translateAiModel);
     const failSummary = failures.length
