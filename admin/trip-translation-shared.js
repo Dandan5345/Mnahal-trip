@@ -469,7 +469,7 @@ export function renderTranslationFilterControls(prefix, langCode = "en") {
 }
 
 export function syncTranslationFilterSelectOptions(prefix, langCode = "en", selectedFilter = "all") {
-  const select = document.getElementById(`${prefix}FilterSelect");
+  const select = document.getElementById(`${prefix}FilterSelect`);
   if (!select) return;
   const langLabel = translationLangLabel(langCode);
   select.innerHTML = `
@@ -481,7 +481,7 @@ export function syncTranslationFilterSelectOptions(prefix, langCode = "en", sele
 }
 
 export function bindTranslationFilterControls(prefix, state, onChange) {
-  const select = document.getElementById(`${prefix}FilterSelect");
+  const select = document.getElementById(`${prefix}FilterSelect`);
   if (!select) return;
   syncTranslationFilterSelectOptions(prefix, state.lang || "en", state.filter || "all");
   select.addEventListener("change", () => {
