@@ -27,6 +27,7 @@ Rules:
 - Every nested object must keep the same id / dayNumber / order as the input.
 - Write natural English for tourists. Keep place names recognizable; add English in parentheses when helpful.
 - Do NOT translate URLs, booking links, image urls, coordinates, category keys, reservation enums, or provider brand names.
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
 - If a field is empty or missing in Hebrew, return it empty.
 - For priceRange keep currency symbols and numbers; translate words like "לאדם" to "per person".
 - For rating text like "לא נמצא" translate to "Not found".
@@ -60,6 +61,7 @@ Rules:
 - Every nested object must keep the same id / dayNumber / order as the input.
 - Write natural English for tourists. Keep place names recognizable; add English in parentheses when helpful.
 - Do NOT translate URLs, image urls, coordinates, or machine keys.
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
 - If a field is empty or missing in Hebrew, return it empty.
 
 The ONLY allowed output shape:
@@ -88,6 +90,7 @@ Rules:
 - Translate hotelName, destination, address, summary, breakfast, kosher/shabbat reasons, notes, locationRating, bookingRatingText, googleRatingText.
 - Translate booking placeTitle, title, summary, priceRange, destination.
 - Preserve array length and ids exactly.
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
 - For priceRange keep currency symbols and numbers; translate words like "לאדם" to "per person".
 - For rating text like "לא נמצא" translate to "Not found".
 
@@ -111,6 +114,7 @@ Rules:
 - Keep ids, starRating, urls, coords, booleans, numeric ratings unchanged.
 - Translate hotelName, destination, address, summary, breakfast, kosher/shabbat reasons, notes, locationRating, bookingRatingText, googleRatingText.
 - Preserve array length and ids exactly.
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
 
 Output shape:
 {
@@ -131,6 +135,7 @@ Rules:
 - Keep ids, placeId, provider, urls, coords, image fields unchanged.
 - Translate placeTitle, title, summary, priceRange, destination.
 - Preserve array length and ids exactly.
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
 
 Output shape:
 {
@@ -214,10 +219,109 @@ export function extractJsonObjectText(response) {
     if (firstNewline !== -1) output = output.slice(firstNewline + 1);
     if (output.endsWith("```")) output = output.slice(0, -3);
   }
+  const balanced = extractFirstBalancedJsonObject(output);
+  if (balanced) return balanced;
   const start = output.indexOf("{");
   const end = output.lastIndexOf("}");
   if (start !== -1 && end > start) return output.slice(start, end + 1);
   return output;
+}
+
+function extractFirstBalancedJsonObject(source) {
+  const start = source.indexOf("{");
+  if (start === -1) return "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const ch = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "\"") inString = false;
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return "";
+}
+
+function escapeUnescapedControlCharsInJsonStrings(source) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of source) {
+    if (inString) {
+      if (escaped) {
+        result += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        result += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === "\"") {
+        result += ch;
+        inString = false;
+        continue;
+      }
+      if (ch === "\n") {
+        result += "\\n";
+        continue;
+      }
+      if (ch === "\r") {
+        result += "\\r";
+        continue;
+      }
+      if (ch === "\t") {
+        result += "\\t";
+        continue;
+      }
+      if (ch === "\b") {
+        result += "\\b";
+        continue;
+      }
+      if (ch === "\f") {
+        result += "\\f";
+        continue;
+      }
+      result += ch;
+      continue;
+    }
+    result += ch;
+    if (ch === "\"") inString = true;
+  }
+  return result;
+}
+
+function parseAiJsonObject(jsonText) {
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    const repaired = escapeUnescapedControlCharsInJsonStrings(jsonText);
+    if (repaired === jsonText) throw error;
+    try {
+      return JSON.parse(repaired);
+    } catch (_) {
+      throw error;
+    }
+  }
 }
 
 export function appendLiveText(current, delta) {
@@ -648,7 +752,7 @@ export function parseTranslationResponse(rawText) {
   if (!jsonText.trim()) {
     throw new Error("ה-AI החזיר תשובה ריקה. נסה שוב, הקטן את מספר הפריטים, או הורד את רמת החשיבה.");
   }
-  const decoded = JSON.parse(jsonText);
+  const decoded = parseAiJsonObject(jsonText);
   const translation = decoded?.translation;
   if (!translation || typeof translation !== "object") {
     throw new Error("AI response missing translation object");
