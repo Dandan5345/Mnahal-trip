@@ -734,7 +734,6 @@ export async function requestTripTranslation({
       feature: "admin_tool",
       systemPrompt,
       userPrompt: JSON.stringify(payload, null, 2),
-      maxTokens: 32768,
       preferredModel: aiModel,
       thinkingEnabled,
       reasoningEffort,

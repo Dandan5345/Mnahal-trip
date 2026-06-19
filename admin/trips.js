@@ -61,6 +61,10 @@ const COMPOSE_STEPS = [
 ];
 
 const SEARCH_RADIUS_KM = 50;
+const TRIP_TRANSLATION_DAYS_PER_BATCH = 1;
+const TRIP_TRANSLATION_PLACES_PER_BATCH = 5;
+const TRIP_TRANSLATION_HOTELS_PER_BATCH = 3;
+const TRIP_TRANSLATION_BOOKINGS_PER_BATCH = 5;
 const TRIP_TEMPLATE_R2_FOLDER = "tav_img";
 const TRIP_HOTEL_R2_FOLDER = "hotel_img";
 const TRIP_BOOKING_R2_FOLDER = "link_img";
@@ -2013,12 +2017,45 @@ function tripTranslationPartHandlers(tr, liveParts, key, label) {
 function isTripTranslationRetryableError(error) {
     const message = error?.message || String(error || "");
     return Boolean(
-        error?.aiError === "empty_content"
+        error?.incompleteResponse
+        || error?.aiError === "empty_content"
         || error?.aiError === "reasoning_stalled"
         || error instanceof SyntaxError
         || error?.name === "SyntaxError"
         || /תשובה ריקה|Unexpected end of JSON input|Unterminated string|JSON/i.test(message)
     );
+}
+
+function scheduleItemsCount(schedule) {
+    return (Array.isArray(schedule) ? schedule : []).reduce((sum, day) => sum + (Array.isArray(day?.items) ? day.items.length : 0), 0);
+}
+
+function translationArrayLength(translation, key) {
+    return Array.isArray(translation?.[key]) ? translation[key].length : 0;
+}
+
+function throwIncompleteTripTranslation(label, expected, actual) {
+    const error = new Error(`ה-AI החזיר ${actual} מתוך ${expected} פריטים עבור ${label}. מנסה שוב במנה קטנה יותר.`);
+    error.incompleteResponse = true;
+    throw error;
+}
+
+function validateTripTranslationPart(payload, translation) {
+    ["places", "hotels", "bookingLinks"].forEach((key) => {
+        if (!Array.isArray(payload?.[key])) return;
+        const expected = payload[key].length;
+        const actual = translationArrayLength(translation, key);
+        if (actual !== expected) throwIncompleteTripTranslation(key, expected, actual);
+    });
+
+    if (Array.isArray(payload?.schedule)) {
+        const expectedDays = payload.schedule.length;
+        const actualDays = translationArrayLength(translation, "schedule");
+        if (actualDays !== expectedDays) throwIncompleteTripTranslation("schedule days", expectedDays, actualDays);
+        const expectedItems = scheduleItemsCount(payload.schedule);
+        const actualItems = scheduleItemsCount(translation.schedule);
+        if (actualItems !== expectedItems) throwIncompleteTripTranslation("schedule items", expectedItems, actualItems);
+    }
 }
 
 async function requestTripTranslationPart({
@@ -2040,51 +2077,253 @@ async function requestTripTranslationPart({
         handlers: tripTranslationPartHandlers(tr, liveParts, key, label)
     });
     const part = liveParts[key];
-    return parseTranslationResponse(response.text || part?.answer || "");
+    const translation = parseTranslationResponse(response.text || part?.answer || "");
+    validateTripTranslationPart(payload, translation);
+    return translation;
 }
 
 async function requestTripTranslationPartRobust(args) {
+    let lastError;
     try {
         return await requestTripTranslationPart(args);
     } catch (error) {
-        if (!args.tr.thinkingEnabled || !isTripTranslationRetryableError(error)) throw error;
-        setTranslationStatus(`${args.label} נקטע או חזר ריק - מנסה שוב ללא מצב חשיבה...`);
-        args.liveParts[args.key] = { label: args.label, reasoning: "", answer: "", model: null };
-        renderTripTranslationPartLive(args.tr, args.liveParts);
-        return requestTripTranslationPart({ ...args, noThinking: true });
+        lastError = error;
+        if (!isTripTranslationRetryableError(error)) throw error;
     }
+
+    if (args.tr.thinkingEnabled && !args.noThinking) {
+        try {
+            setTranslationStatus(`${args.label} נקטע או חזר ריק - מנסה שוב ללא מצב חשיבה...`);
+            args.liveParts[args.key] = { label: args.label, reasoning: "", answer: "", model: null };
+            renderTripTranslationPartLive(args.tr, args.liveParts);
+            return await requestTripTranslationPart({ ...args, noThinking: true });
+        } catch (error) {
+            lastError = error;
+            if (!isTripTranslationRetryableError(error)) throw error;
+        }
+    }
+
+    if (args.splitArrayKey && Array.isArray(args.splitItems) && args.splitItems.length > 1) {
+        const mid = Math.ceil(args.splitItems.length / 2);
+        const leftItems = args.splitItems.slice(0, mid);
+        const rightItems = args.splitItems.slice(mid);
+        setTranslationStatus(`${args.label} עדיין נקטע - מפצל ל-${leftItems.length} + ${rightItems.length} פריטים...`);
+
+        const buildSplitArgs = (items, suffix) => ({
+            ...args,
+            key: `${args.key}-${suffix}`,
+            label: `${args.label} ${suffix === "a" ? "א" : "ב"}`,
+            payload: { ...args.payload, [args.splitArrayKey]: items },
+            splitItems: items,
+            noThinking: false
+        });
+
+        const left = await requestTripTranslationPartRobust(buildSplitArgs(leftItems, "a"));
+        const right = await requestTripTranslationPartRobust(buildSplitArgs(rightItems, "b"));
+        return mergeTripTranslationParts([left, right]);
+    }
+
+    if (args.splitArrayKey === "schedule" && Array.isArray(args.splitItems) && args.splitItems.length === 1) {
+        const day = args.splitItems[0];
+        const dayItems = Array.isArray(day?.items) ? day.items : [];
+        if (dayItems.length > 1) {
+            const mid = Math.ceil(dayItems.length / 2);
+            const leftDay = { ...day, items: dayItems.slice(0, mid) };
+            const rightDay = { ...day, items: dayItems.slice(mid) };
+            setTranslationStatus(`${args.label} עדיין נקטע - מפצל את היום ל-${leftDay.items.length} + ${rightDay.items.length} תחנות...`);
+            const buildDaySplitArgs = (splitDay, suffix) => ({
+                ...args,
+                key: `${args.key}-items-${suffix}`,
+                label: `${args.label} תחנות ${suffix === "a" ? "א" : "ב"}`,
+                payload: { ...args.payload, schedule: [splitDay] },
+                splitItems: [splitDay],
+                noThinking: false
+            });
+            const left = await requestTripTranslationPartRobust(buildDaySplitArgs(leftDay, "a"));
+            const right = await requestTripTranslationPartRobust(buildDaySplitArgs(rightDay, "b"));
+            return mergeTripTranslationParts([left, right]);
+        }
+    }
+
+    throw lastError;
+}
+
+function tripTranslationBasePayload(sourcePayload) {
+    return {
+        template_id: text(sourcePayload?.template_id),
+        target_lang: sourcePayload?.target_lang || "en"
+    };
+}
+
+function tripTranslationMetaPayload(sourcePayload) {
+    const payload = tripTranslationBasePayload(sourcePayload);
+    ["name", "description", "mainDestination", "country", "city"].forEach((key) => {
+        if (text(sourcePayload?.[key])) payload[key] = text(sourcePayload[key]);
+    });
+    return payload;
+}
+
+function mergeTripTranslationParts(parts) {
+    const merged = {};
+    const scalarKeys = ["name", "description", "mainDestination", "country", "city"];
+    const arrayKeys = ["places", "hotels", "bookingLinks"];
+
+    parts.forEach((part) => {
+        if (!part || typeof part !== "object") return;
+        scalarKeys.forEach((key) => {
+            if (!Object.prototype.hasOwnProperty.call(part, key)) return;
+            if (!Object.prototype.hasOwnProperty.call(merged, key) || !text(merged[key])) {
+                merged[key] = part[key] == null ? "" : part[key];
+            }
+        });
+        arrayKeys.forEach((key) => {
+            if (!Array.isArray(part[key])) return;
+            merged[key] = [...(merged[key] || []), ...part[key]];
+        });
+        if (Array.isArray(part.schedule)) {
+            merged.schedule = mergeScheduleTranslationDays(merged.schedule || [], part.schedule);
+        }
+    });
+
+    return merged;
+}
+
+function mergeScheduleTranslationDays(existingDays, incomingDays) {
+    const result = [...existingDays];
+    incomingDays.forEach((day) => {
+        if (!day || typeof day !== "object") return;
+        const dayNumber = Number(day.dayNumber || 0);
+        const index = dayNumber
+            ? result.findIndex((item) => Number(item?.dayNumber || 0) === dayNumber)
+            : -1;
+        if (index === -1) {
+            result.push(day);
+            return;
+        }
+        const current = result[index] || {};
+        result[index] = {
+            ...current,
+            ...day,
+            title: text(current.title) ? current.title : day.title,
+            dayTips: Array.isArray(current.dayTips) && current.dayTips.length ? current.dayTips : (Array.isArray(day.dayTips) ? day.dayTips : []),
+            items: [...(Array.isArray(current.items) ? current.items : []), ...(Array.isArray(day.items) ? day.items : [])]
+        };
+    });
+    return result;
+}
+
+function translationChunkLabel(label, batch, index, total) {
+    const first = batch[0];
+    const last = batch[batch.length - 1];
+    if (first?.dayNumber || last?.dayNumber) {
+        const from = first?.dayNumber || index + 1;
+        const to = last?.dayNumber || from;
+        return from === to ? `${label} יום ${from}` : `${label} ימים ${from}-${to}`;
+    }
+    return total > 1 ? `${label} ${index + 1}/${total}` : label;
+}
+
+async function requestTripTranslationArrayBatches({
+    tr,
+    liveParts,
+    sourcePayload,
+    arrayKey,
+    items,
+    batchSize,
+    keyPrefix,
+    label,
+    systemPrompt
+}) {
+    if (!Array.isArray(items) || !items.length) return {};
+    const batches = chunkArray(items, batchSize);
+    const results = [];
+
+    for (let index = 0; index < batches.length; index += 1) {
+        const batch = batches[index];
+        const batchLabel = translationChunkLabel(label, batch, index, batches.length);
+        const payload = { ...tripTranslationBasePayload(sourcePayload), [arrayKey]: batch };
+        results.push(await requestTripTranslationPartRobust({
+            tr,
+            key: `${keyPrefix}-${index + 1}`,
+            label: batchLabel,
+            liveParts,
+            systemPrompt,
+            payload,
+            splitArrayKey: arrayKey,
+            splitItems: batch
+        }));
+    }
+
+    return mergeTripTranslationParts(results);
 }
 
 async function translateTripTemplateInParts(template, tr) {
     const itineraryPayload = buildTripScheduleTranslationPayload(template);
     const commercePayload = buildTripCommerceTranslationPayload(template);
     const liveParts = {};
-    const tasks = [];
+    const results = [];
 
-    if (tripTranslationPayloadHasContent(itineraryPayload, ["name", "description", "mainDestination", "country", "city", "schedule", "places"])) {
-        tasks.push(requestTripTranslationPartRobust({
+    const metaPayload = tripTranslationMetaPayload(itineraryPayload);
+    if (tripTranslationPayloadHasContent(metaPayload, ["name", "description", "mainDestination", "country", "city"])) {
+        results.push(await requestTripTranslationPartRobust({
             tr,
-            key: "itinerary",
-            label: "לו״ז ומקומות",
+            key: "meta",
+            label: "פרטי טיול",
             liveParts,
             systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT,
-            payload: itineraryPayload
+            payload: metaPayload
         }));
     }
 
-    if (tripTranslationPayloadHasContent(commercePayload, ["hotels", "bookingLinks"])) {
-        tasks.push(requestTripTranslationPartRobust({
-            tr,
-            key: "commerce",
-            label: "מלונות וקישורי הזמנה",
-            liveParts,
-            systemPrompt: TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT,
-            payload: commercePayload
-        }));
-    }
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: itineraryPayload,
+        arrayKey: "schedule",
+        items: itineraryPayload.schedule,
+        batchSize: TRIP_TRANSLATION_DAYS_PER_BATCH,
+        keyPrefix: "schedule",
+        label: "לו״ז",
+        systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT
+    }));
 
-    const translations = await Promise.all(tasks);
-    return Object.assign({}, ...translations);
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: itineraryPayload,
+        arrayKey: "places",
+        items: itineraryPayload.places,
+        batchSize: TRIP_TRANSLATION_PLACES_PER_BATCH,
+        keyPrefix: "places",
+        label: "מקומות",
+        systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT
+    }));
+
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: commercePayload,
+        arrayKey: "hotels",
+        items: commercePayload.hotels,
+        batchSize: TRIP_TRANSLATION_HOTELS_PER_BATCH,
+        keyPrefix: "hotels",
+        label: "מלונות",
+        systemPrompt: TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT
+    }));
+
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: commercePayload,
+        arrayKey: "bookingLinks",
+        items: commercePayload.bookingLinks,
+        batchSize: TRIP_TRANSLATION_BOOKINGS_PER_BATCH,
+        keyPrefix: "bookingLinks",
+        label: "קישורי הזמנה",
+        systemPrompt: TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT
+    }));
+
+    return mergeTripTranslationParts(results);
 }
 
 async function runTripTranslations() {
@@ -2106,7 +2345,7 @@ async function runTripTranslations() {
     let prepared = 0;
     try {
         for (const template of selected) {
-            setTranslationStatus(`מתרגם "${template.name || template.id}" (${prepared + failures.length + 1}/${selected.length}) - לו״ז ומלונות/קישורים במקביל...`);
+            setTranslationStatus(`מתרגם "${template.name || template.id}" (${prepared + failures.length + 1}/${selected.length}) במנות קטנות...`);
             tr.liveReasoning = "";
             tr.liveAnswer = "";
             tr.liveModel = null;
@@ -4686,6 +4925,7 @@ function editTextarea(field, label, value, rows = 7) { return `<label class="edi
 function editToggle(field, label, value) { return `<label class="edit-field edit-toggle"><span>${escapeHtml(label)}</span><input type="checkbox" data-edit-field="${escapeAttr(field)}" ${value ? "checked" : ""} /></label>`; }
 function splitCsv(value) { return text(value).split(",").map(text).filter(Boolean); }
 function cleanJson(raw) { return String(raw || "").replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim(); }
+function chunkArray(items, size) { const chunkSize = Math.max(1, Number(size) || 1); const chunks = []; for (let index = 0; index < (items || []).length; index += chunkSize) chunks.push(items.slice(index, index + chunkSize)); return chunks; }
 function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
 function setStatus(id, message, isError = false) { const el = $(id); if (!el) return; el.textContent = message || ""; el.style.color = isError ? "var(--red)" : "var(--muted)"; }
 function text(value) { return value == null ? "" : String(value).trim(); }
