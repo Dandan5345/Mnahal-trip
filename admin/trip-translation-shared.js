@@ -612,16 +612,76 @@ export function renderTranslationLivePanel(prefix) {
   `;
 }
 
-export function syncTranslationAiControls(prefix, state, saving = false) {
+export function renderTranslationProgressDock(prefix) {
+  return `
+    <div class="translation-progress-dock is-hidden" id="${prefix}ProgressDock" aria-live="polite" aria-atomic="true">
+      <div class="translation-progress-inner">
+        <span class="translation-progress-spinner" aria-hidden="true"></span>
+        <div class="translation-progress-copy">
+          <strong id="${prefix}ProgressTitle">עובד...</strong>
+          <p class="translation-progress-message" id="${prefix}ProgressMessage"></p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+export function isTranslationBusy(state) {
+  return Boolean(state?.translating || state?.saving || state?.loading);
+}
+
+export function syncTranslationProgress(prefix, state) {
+  const dock = document.getElementById(`${prefix}ProgressDock`);
+  const messageEl = document.getElementById(`${prefix}ProgressMessage`);
+  const titleEl = document.getElementById(`${prefix}ProgressTitle`);
+  const busy = isTranslationBusy(state);
+  dock?.classList.toggle("is-hidden", !busy);
+  if (titleEl) {
+    if (state.saving && !state.translating) titleEl.textContent = "שומר תרגומים...";
+    else if (state.translating) titleEl.textContent = "מתרגם עם AI...";
+    else if (state.loading) titleEl.textContent = "טוען תבניות...";
+    else titleEl.textContent = "עובד...";
+  }
+  if (messageEl) {
+    messageEl.textContent = text(state.progressMessage);
+    messageEl.classList.toggle("is-error", Boolean(state.progressError));
+  }
+}
+
+export function setTranslationProgressState(state, message, isError = false) {
+  state.progressMessage = message || "";
+  state.progressError = isError;
+}
+
+export function syncTranslationActionButtons(prefix, state, { saveLabel = "שמור תרגומים מוכנים", pendingCount = 0 } = {}) {
+  const busy = isTranslationBusy(state);
+  const translateButton = document.getElementById(`${prefix}TranslateButton`);
+  if (translateButton) {
+    translateButton.disabled = busy;
+    translateButton.classList.toggle("is-loading", state.translating);
+  }
+  const saveButton = document.getElementById(`${prefix}SaveButton`);
+  if (saveButton) {
+    saveButton.disabled = busy || pendingCount === 0;
+    saveButton.classList.toggle("is-loading", state.saving && !state.translating);
+    if (state.saving && !state.translating) {
+      saveButton.innerHTML = `<span class="translation-progress-spinner is-inline" aria-hidden="true"></span><span>שומר...</span>`;
+    } else {
+      saveButton.innerHTML = `<i data-lucide="save" aria-hidden="true"></i><span>${escapeHtml(saveLabel)}${pendingCount ? ` (${pendingCount})` : ""}</span>`;
+    }
+  }
+}
+
+export function syncTranslationAiControls(prefix, state, busy = false) {
   const modelSelect = document.getElementById(`${prefix}AiModelSelect`);
   if (modelSelect) {
     modelSelect.value = state.aiModel;
-    modelSelect.disabled = saving;
+    modelSelect.disabled = busy;
   }
   const thinkingSelect = document.getElementById(`${prefix}AiThinkingSelect`);
   if (thinkingSelect) {
     thinkingSelect.value = selectedReasoningValue(state.thinkingEnabled, state.reasoningEffort);
-    thinkingSelect.disabled = saving;
+    thinkingSelect.disabled = busy;
   }
   const note = document.getElementById(`${prefix}AiModeNote`);
   if (note) {
@@ -649,7 +709,8 @@ export function renderTranslationLive(state, prefix) {
   const panel = document.getElementById(`${prefix}LivePanel`);
   if (!panel) return;
   const hasContent = text(state.liveReasoning) || text(state.liveAnswer);
-  panel.classList.toggle("is-hidden", !hasContent);
+  const showLive = hasContent || state.translating;
+  panel.classList.toggle("is-hidden", !showLive);
   const meta = document.getElementById(`${prefix}LiveMeta`);
   if (meta) meta.textContent = aiModeSummary(state.liveModel || state.aiModel, state.thinkingEnabled, state.reasoningEffort);
   const reasoning = document.getElementById(`${prefix}LiveReasoning`);
@@ -861,11 +922,11 @@ export function renderTranslationLangControls(prefix, langCode = "en") {
   `;
 }
 
-export function syncTranslationLangControls(prefix, state, saving = false) {
+export function syncTranslationLangControls(prefix, state, busy = false) {
   const select = document.getElementById(`${prefix}LangSelect`);
   if (!select) return;
   select.value = state.lang || "en";
-  select.disabled = saving;
+  select.disabled = busy;
 }
 
 export function bindTranslationLangControls(prefix, state, onChange) {
@@ -1013,7 +1074,10 @@ export function createTranslationState(featureKey) {
     selectedIds: new Set(),
     loaded: false,
     loading: false,
+    translating: false,
     saving: false,
+    progressMessage: "",
+    progressError: false,
     search: "",
     filter: "all",
     lang: storedAiPreference(featureKey, "lang", "en"),
@@ -1072,7 +1136,6 @@ export function renderTranslationWorkspace({
             <span>${escapeHtml(loadLabel)}</span>
           </button>
         </div>
-        <p class="status-line" id="${prefix}Status"></p>
       </article>
 
       <article class="panel">
@@ -1097,6 +1160,8 @@ export function renderTranslationWorkspace({
         ${renderTranslationLivePanel(prefix)}
       </article>
     </div>
+
+    ${renderTranslationProgressDock(prefix)}
 
     <section class="result-section">
       <div class="section-heading compact">
