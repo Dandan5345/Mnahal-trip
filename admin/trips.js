@@ -61,6 +61,10 @@ const DEEPSEEK_REASONING_OPTIONS = [
     { value: "max", label: "מקסימלית" }
 ];
 const AI_PREFERENCE_STORAGE_PREFIX = "tripTapAdminAi";
+const TRIP_TRANSLATION_DAYS_PER_BATCH = 1;
+const TRIP_TRANSLATION_PLACES_PER_BATCH = 5;
+const TRIP_TRANSLATION_HOTELS_PER_BATCH = 3;
+const TRIP_TRANSLATION_BOOKINGS_PER_BATCH = 5;
 const COMPOSE_STEPS = [
     { key: "builder", label: "יצירת מסלול", num: 1 },
     { key: "preview", label: "לו״ז ועריכה", num: 2 },
@@ -1992,7 +1996,68 @@ function tripTranslationPayloadHasContent(payload, keys) {
     });
 }
 
-const TRIP_DETAILS_TRANSLATION_KEYS = ["name", "description", "mainDestination", "country", "city", "places", "hotels", "bookingLinks"];
+const TRIP_META_KEYS = ["name", "description", "mainDestination", "country", "city"];
+const TRIP_DETAILS_TRANSLATION_KEYS = [...TRIP_META_KEYS, "places", "hotels", "bookingLinks"];
+
+function tripTranslationBasePayload(sourcePayload) {
+    return {
+        template_id: text(sourcePayload?.template_id),
+        target_lang: sourcePayload?.target_lang || "en"
+    };
+}
+
+function tripTranslationMetaPayload(sourcePayload) {
+    const payload = tripTranslationBasePayload(sourcePayload);
+    TRIP_META_KEYS.forEach((key) => {
+        if (text(sourcePayload?.[key])) payload[key] = text(sourcePayload[key]);
+    });
+    return payload;
+}
+
+function translationChunkLabel(label, batch, index, total) {
+    const first = batch[0];
+    const last = batch[batch.length - 1];
+    if (first?.dayNumber || last?.dayNumber) {
+        const from = first?.dayNumber || index + 1;
+        const to = last?.dayNumber || from;
+        return from === to ? `${label} יום ${from}` : `${label} ימים ${from}-${to}`;
+    }
+    return total > 1 ? `${label} ${index + 1}/${total}` : label;
+}
+
+async function requestTripTranslationArrayBatches({
+    tr,
+    liveParts,
+    sourcePayload,
+    arrayKey,
+    items,
+    batchSize,
+    keyPrefix,
+    label,
+    systemPrompt
+}) {
+    if (!Array.isArray(items) || !items.length) return {};
+    const batches = chunkArray(items, batchSize);
+    const results = [];
+
+    for (let index = 0; index < batches.length; index += 1) {
+        const batch = batches[index];
+        const batchLabel = translationChunkLabel(label, batch, index, batches.length);
+        const payload = { ...tripTranslationBasePayload(sourcePayload), [arrayKey]: batch };
+        results.push(await requestTripTranslationPartRobust({
+            tr,
+            key: `${keyPrefix}-${index + 1}`,
+            label: batchLabel,
+            liveParts,
+            systemPrompt,
+            payload,
+            splitArrayKey: arrayKey,
+            splitItems: batch
+        }));
+    }
+
+    return mergeTripTranslationParts(results);
+}
 
 function renderTripTranslationPartLive(tr, liveParts) {
     const parts = Object.values(liveParts);
@@ -2221,46 +2286,74 @@ function mergeScheduleTranslationDays(existingDays, incomingDays) {
     return result;
 }
 
-// A trip is translated in exactly two whole requests:
-//   1. the entire schedule (the לו״ז) in one shot,
-//   2. everything else (name/description/destination + places + hotels +
-//      booking links) in one shot.
-// Each request sends its full payload at once and expects one complete JSON
-// response. The no-thinking retry inside requestTripTranslationPartRobust
-// re-sends the same whole part; the day-split fallback only ever activates as a
-// last resort if a response keeps getting truncated.
 async function translateTripTemplateInParts(template, tr) {
     const lang = tr.lang || "en";
     const schedulePayload = buildTripScheduleOnlyTranslationPayload(template, lang);
     const detailsPayload = buildTripDetailsTranslationPayload(template, lang);
+    const schedulePrompt = buildTripScheduleOnlyTranslationSystemPrompt(lang);
+    const detailsPrompt = buildTripDetailsTranslationSystemPrompt(lang);
     const liveParts = {};
     const results = [];
 
-    if (Array.isArray(schedulePayload.schedule) && schedulePayload.schedule.length) {
-        setTranslationStatus(`מתרגם לו״ז של "${template.name || template.id}"...`);
+    const metaPayload = tripTranslationMetaPayload(schedulePayload);
+    if (tripTranslationPayloadHasContent(metaPayload, TRIP_META_KEYS)) {
         results.push(await requestTripTranslationPartRobust({
             tr,
-            key: "schedule",
-            label: "לו״ז",
+            key: "meta",
+            label: "פרטי טיול",
             liveParts,
-            systemPrompt: buildTripScheduleOnlyTranslationSystemPrompt(lang),
-            payload: schedulePayload,
-            splitArrayKey: "schedule",
-            splitItems: schedulePayload.schedule
+            systemPrompt: detailsPrompt,
+            payload: metaPayload
         }));
     }
 
-    if (tripTranslationPayloadHasContent(detailsPayload, TRIP_DETAILS_TRANSLATION_KEYS)) {
-        setTranslationStatus(`מתרגם פרטי טיול, מקומות, מלונות וקישורים של "${template.name || template.id}"...`);
-        results.push(await requestTripTranslationPartRobust({
-            tr,
-            key: "details",
-            label: "פרטי הטיול",
-            liveParts,
-            systemPrompt: buildTripDetailsTranslationSystemPrompt(lang),
-            payload: detailsPayload
-        }));
-    }
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: schedulePayload,
+        arrayKey: "schedule",
+        items: schedulePayload.schedule,
+        batchSize: TRIP_TRANSLATION_DAYS_PER_BATCH,
+        keyPrefix: "schedule",
+        label: "לו״ז",
+        systemPrompt: schedulePrompt
+    }));
+
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: detailsPayload,
+        arrayKey: "places",
+        items: detailsPayload.places,
+        batchSize: TRIP_TRANSLATION_PLACES_PER_BATCH,
+        keyPrefix: "places",
+        label: "מקומות",
+        systemPrompt: detailsPrompt
+    }));
+
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: detailsPayload,
+        arrayKey: "hotels",
+        items: detailsPayload.hotels,
+        batchSize: TRIP_TRANSLATION_HOTELS_PER_BATCH,
+        keyPrefix: "hotels",
+        label: "מלונות",
+        systemPrompt: detailsPrompt
+    }));
+
+    results.push(await requestTripTranslationArrayBatches({
+        tr,
+        liveParts,
+        sourcePayload: detailsPayload,
+        arrayKey: "bookingLinks",
+        items: detailsPayload.bookingLinks,
+        batchSize: TRIP_TRANSLATION_BOOKINGS_PER_BATCH,
+        keyPrefix: "bookingLinks",
+        label: "קישורי הזמנה",
+        systemPrompt: detailsPrompt
+    }));
 
     return mergeTripTranslationParts(results);
 }
