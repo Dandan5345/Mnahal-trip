@@ -18,19 +18,24 @@ import {
     debounce
 } from "./shared.js";
 import {
-    TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT,
-    TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT,
-    buildTripScheduleTranslationPayload,
-    buildTripCommerceTranslationPayload,
+    buildTripScheduleOnlyTranslationSystemPrompt,
+    buildTripDetailsTranslationSystemPrompt,
+    buildTripScheduleOnlyTranslationPayload,
+    buildTripDetailsTranslationPayload,
     createTranslationState,
     renderTranslationWorkspace,
     syncTranslationAiControls,
     bindTranslationAiControls,
+    bindTranslationLangControls,
+    syncTranslationLangControls,
+    syncTranslationWorkspaceLabels,
     renderTranslationLive,
     requestTripTranslation,
     parseTranslationResponse,
     saveTemplateTranslation,
     translationBadge,
+    translationLangLabel,
+    translationTargetKey,
     applyTranslationFilter,
     bindTranslationFilterControls,
     translationFilterEmptyMessage
@@ -61,10 +66,6 @@ const COMPOSE_STEPS = [
 ];
 
 const SEARCH_RADIUS_KM = 50;
-const TRIP_TRANSLATION_DAYS_PER_BATCH = 1;
-const TRIP_TRANSLATION_PLACES_PER_BATCH = 5;
-const TRIP_TRANSLATION_HOTELS_PER_BATCH = 3;
-const TRIP_TRANSLATION_BOOKINGS_PER_BATCH = 5;
 const TRIP_TEMPLATE_R2_FOLDER = "tav_img";
 const TRIP_HOTEL_R2_FOLDER = "hotel_img";
 const TRIP_BOOKING_R2_FOLDER = "link_img";
@@ -264,7 +265,7 @@ function renderPage() {
             subtitle: state.lastSavedId ? "עריכה מלאה של כל שלבי הטיול — לו״ז, מלונות, קישורים ושמירה." : "מקומות, prompt, JSON ושמירה."
         },
         manage: { title: "טיולים מצב נוכחי", subtitle: "חיפוש, טעינה, עריכה ומחיקה." },
-        translate: { title: "תרגום טיולים", subtitle: "שליחת תבנית מלאה ל-AI ושמירת translations.en." }
+        translate: { title: "תרגום טיולים", subtitle: "שליחת תבנית מלאה ל-AI ושמירה ב-translations.en או translations.fr." }
     };
     const viewMeta = titles[state.view] || titles.compose;
     document.getElementById("app").innerHTML = createAdminShell({
@@ -296,8 +297,9 @@ function renderTranslateView() {
         prefix: "tripTranslate",
         entityLabel: "טיולים",
         loadLabel: "טען תבניות טיול",
-        translateLabel: "תרגם נבחרים לאנגלית",
+        translateLabel: `תרגם נבחרים ל${translationLangLabel(tr.lang)}`,
         saveLabel: "שמור תרגומים מוכנים",
+        lang: tr.lang,
         aiModel: tr.aiModel,
         thinkingEnabled: tr.thinkingEnabled,
         reasoningEffort: tr.reasoningEffort
@@ -1852,10 +1854,13 @@ function bindTripTranslationActions() {
         renderTranslationTemplates();
     });
     bindTranslationFilterControls("tripTranslate", tr, () => renderTranslationTemplates());
+    bindTranslationLangControls("tripTranslate", tr, () => renderTranslationTemplates());
     bindTranslationAiControls("tripTranslate", tr, () => {
         syncTranslationAiControls("tripTranslate", tr, tr.saving);
         refreshIcons();
     });
+    syncTranslationLangControls("tripTranslate", tr, tr.saving);
+    syncTranslationWorkspaceLabels("tripTranslate", tr);
     syncTranslationAiControls("tripTranslate", tr, tr.saving);
     updateTripTranslationSaveButton();
 }
@@ -1918,7 +1923,7 @@ function renderTranslationTemplates() {
                     <input type="checkbox" data-translate-template-id="${escapeAttr(template.id)}" ${tr.selectedIds.has(template.id) ? "checked" : ""} />
                     בחירה
                 </label>
-                <div class="compact-card-meta">${translationBadge(template)}${tr.pendingTranslations[template.id] ? '<span class="count-pill" style="background:rgba(245,158,11,0.16);color:#b45309;border-color:rgba(245,158,11,0.45)">ממתין לשמירה</span>' : ""}</div>
+                <div class="compact-card-meta">${translationBadge(template, tr.lang)}${tr.pendingTranslations[template.id] ? '<span class="count-pill" style="background:rgba(245,158,11,0.16);color:#b45309;border-color:rgba(245,158,11,0.45)">ממתין לשמירה</span>' : ""}</div>
                 <h3>${escapeHtml(template.name || "תבנית טיול")}</h3>
                 <p class="compact-card-summary">${escapeHtml(template.description || template.mainDestination || "")}</p>
                 <div class="compact-card-meta">
@@ -1974,6 +1979,8 @@ function tripTranslationPayloadHasContent(payload, keys) {
         return text(value).length > 0;
     });
 }
+
+const TRIP_DETAILS_TRANSLATION_KEYS = ["name", "description", "mainDestination", "country", "city", "places", "hotels", "bookingLinks"];
 
 function renderTripTranslationPartLive(tr, liveParts) {
     const parts = Object.values(liveParts);
@@ -2148,21 +2155,6 @@ async function requestTripTranslationPartRobust(args) {
     throw lastError;
 }
 
-function tripTranslationBasePayload(sourcePayload) {
-    return {
-        template_id: text(sourcePayload?.template_id),
-        target_lang: sourcePayload?.target_lang || "en"
-    };
-}
-
-function tripTranslationMetaPayload(sourcePayload) {
-    const payload = tripTranslationBasePayload(sourcePayload);
-    ["name", "description", "mainDestination", "country", "city"].forEach((key) => {
-        if (text(sourcePayload?.[key])) payload[key] = text(sourcePayload[key]);
-    });
-    return payload;
-}
-
 function mergeTripTranslationParts(parts) {
     const merged = {};
     const scalarKeys = ["name", "description", "mainDestination", "country", "city"];
@@ -2212,116 +2204,44 @@ function mergeScheduleTranslationDays(existingDays, incomingDays) {
     return result;
 }
 
-function translationChunkLabel(label, batch, index, total) {
-    const first = batch[0];
-    const last = batch[batch.length - 1];
-    if (first?.dayNumber || last?.dayNumber) {
-        const from = first?.dayNumber || index + 1;
-        const to = last?.dayNumber || from;
-        return from === to ? `${label} יום ${from}` : `${label} ימים ${from}-${to}`;
-    }
-    return total > 1 ? `${label} ${index + 1}/${total}` : label;
-}
-
-async function requestTripTranslationArrayBatches({
-    tr,
-    liveParts,
-    sourcePayload,
-    arrayKey,
-    items,
-    batchSize,
-    keyPrefix,
-    label,
-    systemPrompt
-}) {
-    if (!Array.isArray(items) || !items.length) return {};
-    const batches = chunkArray(items, batchSize);
-    const results = [];
-
-    for (let index = 0; index < batches.length; index += 1) {
-        const batch = batches[index];
-        const batchLabel = translationChunkLabel(label, batch, index, batches.length);
-        const payload = { ...tripTranslationBasePayload(sourcePayload), [arrayKey]: batch };
-        results.push(await requestTripTranslationPartRobust({
-            tr,
-            key: `${keyPrefix}-${index + 1}`,
-            label: batchLabel,
-            liveParts,
-            systemPrompt,
-            payload,
-            splitArrayKey: arrayKey,
-            splitItems: batch
-        }));
-    }
-
-    return mergeTripTranslationParts(results);
-}
-
+// A trip is translated in exactly two whole requests:
+//   1. the entire schedule (the לו״ז) in one shot,
+//   2. everything else (name/description/destination + places + hotels +
+//      booking links) in one shot.
+// Each request sends its full payload at once and expects one complete JSON
+// response. The no-thinking retry inside requestTripTranslationPartRobust
+// re-sends the same whole part; the day-split fallback only ever activates as a
+// last resort if a response keeps getting truncated.
 async function translateTripTemplateInParts(template, tr) {
-    const itineraryPayload = buildTripScheduleTranslationPayload(template);
-    const commercePayload = buildTripCommerceTranslationPayload(template);
+    const lang = tr.lang || "en";
+    const schedulePayload = buildTripScheduleOnlyTranslationPayload(template, lang);
+    const detailsPayload = buildTripDetailsTranslationPayload(template, lang);
     const liveParts = {};
     const results = [];
 
-    const metaPayload = tripTranslationMetaPayload(itineraryPayload);
-    if (tripTranslationPayloadHasContent(metaPayload, ["name", "description", "mainDestination", "country", "city"])) {
+    if (Array.isArray(schedulePayload.schedule) && schedulePayload.schedule.length) {
         results.push(await requestTripTranslationPartRobust({
             tr,
-            key: "meta",
-            label: "פרטי טיול",
+            key: "schedule",
+            label: "לו״ז",
             liveParts,
-            systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT,
-            payload: metaPayload
+            systemPrompt: buildTripScheduleOnlyTranslationSystemPrompt(lang),
+            payload: schedulePayload,
+            splitArrayKey: "schedule",
+            splitItems: schedulePayload.schedule
         }));
     }
 
-    results.push(await requestTripTranslationArrayBatches({
-        tr,
-        liveParts,
-        sourcePayload: itineraryPayload,
-        arrayKey: "schedule",
-        items: itineraryPayload.schedule,
-        batchSize: TRIP_TRANSLATION_DAYS_PER_BATCH,
-        keyPrefix: "schedule",
-        label: "לו״ז",
-        systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT
-    }));
-
-    results.push(await requestTripTranslationArrayBatches({
-        tr,
-        liveParts,
-        sourcePayload: itineraryPayload,
-        arrayKey: "places",
-        items: itineraryPayload.places,
-        batchSize: TRIP_TRANSLATION_PLACES_PER_BATCH,
-        keyPrefix: "places",
-        label: "מקומות",
-        systemPrompt: TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT
-    }));
-
-    results.push(await requestTripTranslationArrayBatches({
-        tr,
-        liveParts,
-        sourcePayload: commercePayload,
-        arrayKey: "hotels",
-        items: commercePayload.hotels,
-        batchSize: TRIP_TRANSLATION_HOTELS_PER_BATCH,
-        keyPrefix: "hotels",
-        label: "מלונות",
-        systemPrompt: TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT
-    }));
-
-    results.push(await requestTripTranslationArrayBatches({
-        tr,
-        liveParts,
-        sourcePayload: commercePayload,
-        arrayKey: "bookingLinks",
-        items: commercePayload.bookingLinks,
-        batchSize: TRIP_TRANSLATION_BOOKINGS_PER_BATCH,
-        keyPrefix: "bookingLinks",
-        label: "קישורי הזמנה",
-        systemPrompt: TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT
-    }));
+    if (tripTranslationPayloadHasContent(detailsPayload, TRIP_DETAILS_TRANSLATION_KEYS)) {
+        results.push(await requestTripTranslationPartRobust({
+            tr,
+            key: "details",
+            label: "פרטי הטיול",
+            liveParts,
+            systemPrompt: buildTripDetailsTranslationSystemPrompt(lang),
+            payload: detailsPayload
+        }));
+    }
 
     return mergeTripTranslationParts(results);
 }
@@ -2340,12 +2260,13 @@ async function runTripTranslations() {
     }
     tr.saving = true;
     syncTranslationAiControls("tripTranslate", tr, true);
+    syncTranslationLangControls("tripTranslate", tr, true);
     updateTripTranslationSaveButton();
     const failures = [];
     let prepared = 0;
     try {
         for (const template of selected) {
-            setTranslationStatus(`מתרגם "${template.name || template.id}" (${prepared + failures.length + 1}/${selected.length}) במנות קטנות...`);
+            setTranslationStatus(`מתרגם "${template.name || template.id}" (${prepared + failures.length + 1}/${selected.length}) בשתי בקשות - לו״ז ושאר הפרטים...`);
             tr.liveReasoning = "";
             tr.liveAnswer = "";
             tr.liveModel = null;
@@ -2362,13 +2283,14 @@ async function runTripTranslations() {
     } finally {
         tr.saving = false;
         syncTranslationAiControls("tripTranslate", tr, false);
+        syncTranslationLangControls("tripTranslate", tr, false);
         updateTripTranslationSaveButton();
         renderTranslationTemplates();
     }
     setTranslationStatus(
         failures.length
             ? `הוכנו ${prepared} תרגומים לשמירה. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
-            : `הוכנו ${prepared} תרגומים. לחץ "שמור תרגומים מוכנים" כדי לשמור ב-translations.en.`,
+            : `הוכנו ${prepared} תרגומים. לחץ "שמור תרגומים מוכנים" כדי לשמור ב-${translationTargetKey(tr.lang)}.`,
         failures.length > 0
     );
 }
@@ -2386,16 +2308,18 @@ async function savePendingTripTranslations() {
     }
     tr.saving = true;
     syncTranslationAiControls("tripTranslate", tr, true);
+    syncTranslationLangControls("tripTranslate", tr, true);
     updateTripTranslationSaveButton();
-    setTranslationStatus(`שומר ${entries.length} תרגומים ב-translations.en...`);
+    setTranslationStatus(`שומר ${entries.length} תרגומים ב-${translationTargetKey(tr.lang)}...`);
     let saved = 0;
     const failures = [];
+    const lang = tr.lang || "en";
     try {
         for (const [templateId, translation] of entries) {
             const template = tr.templates.find((item) => item.id === templateId);
             try {
-                await saveTemplateTranslation(state.firebase, templateId, "en", translation);
-                if (template) template.translations = { ...(template.translations || {}), en: translation };
+                await saveTemplateTranslation(state.firebase, templateId, lang, translation);
+                if (template) template.translations = { ...(template.translations || {}), [lang]: translation };
                 delete tr.pendingTranslations[templateId];
                 saved += 1;
                 renderTranslationTemplates();
@@ -2406,13 +2330,14 @@ async function savePendingTripTranslations() {
     } finally {
         tr.saving = false;
         syncTranslationAiControls("tripTranslate", tr, false);
+        syncTranslationLangControls("tripTranslate", tr, false);
         updateTripTranslationSaveButton();
         renderTranslationTemplates();
     }
     setTranslationStatus(
         failures.length
             ? `נשמרו ${saved} תרגומים. ${failures.length} נכשלו: ${failures.slice(0, 2).join(" | ")}`
-            : `נשמרו ${saved} תרגומים ב-translations.en.`,
+            : `נשמרו ${saved} תרגומים ב-${translationTargetKey(tr.lang)}.`,
         failures.length > 0
     );
     if (saved) showToast(`נשמרו ${saved} תרגומי טיולים.`);

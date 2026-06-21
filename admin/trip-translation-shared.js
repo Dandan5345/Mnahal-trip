@@ -17,9 +17,130 @@ export const DEEPSEEK_REASONING_OPTIONS = [
   { value: "max", label: "מקסימלית" }
 ];
 
+export const TRIP_TRANSLATION_LANG_OPTIONS = [
+  { value: "en", label: "אנגלית", english: "English" },
+  { value: "fr", label: "צרפתית", english: "French" }
+];
+
+export function tripTranslationLangConfig(lang) {
+  return TRIP_TRANSLATION_LANG_OPTIONS.find((option) => option.value === lang) || TRIP_TRANSLATION_LANG_OPTIONS[0];
+}
+
+function tripTranslationLocaleHints(lang) {
+  const config = tripTranslationLangConfig(lang);
+  if (config.value === "fr") {
+    return {
+      targetLang: "fr",
+      languageName: config.english,
+      writeNatural: "Write natural French for tourists. Keep place names recognizable; add French in parentheses only when it helps.",
+      perPerson: "par personne",
+      notFound: "Non trouvé",
+      closed: "Fermé",
+      dayNamesRule: "For hours translate the Hebrew day names (ראשון->dimanche, שני->lundi, שלישי->mardi, רביעי->mercredi, חמישי->jeudi, שישי->vendredi, שבת->samedi) and סגור->Fermé; keep the time ranges unchanged."
+    };
+  }
+  return {
+    targetLang: "en",
+    languageName: config.english,
+    writeNatural: "Write natural English for tourists. Keep place names recognizable; add English in parentheses only when it helps.",
+    perPerson: "per person",
+    notFound: "Not found",
+    closed: "Closed",
+    dayNamesRule: "For hours translate the Hebrew day names (ראשון->Sunday, שני->Monday, שלישי->Tuesday, רביעי->Wednesday, חמישי->Thursday, שישי->Friday, שבת->Saturday) and סגור->Closed; keep the time ranges unchanged."
+  };
+}
+
+export function buildTripScheduleOnlyTranslationSystemPrompt(lang = "en") {
+  const locale = tripTranslationLocaleHints(lang);
+  return `
+You translate the itinerary part of TripTap trip templates from Hebrew to ${locale.languageName} for a travel app.
+You receive the ENTIRE schedule of one trip in a single request and must return it fully translated in a single JSON response.
+Return valid JSON only. No markdown, no commentary, no code fences, no extra keys.
+
+Completion contract:
+- Translate the whole schedule in this one response: every day, and every item inside every day.
+- Never stop early, never summarize, never return only the first day or the first item.
+- The output schedule array must have exactly the same number of days, in the same order, as the input.
+- Inside each day, the items array must have exactly the same number of items, in the same order, as the input.
+- Before returning, verify the JSON is complete, parseable, and closed with all braces/brackets.
+- If wording becomes long, shorten the translation rather than dropping any day, item, or field.
+
+Rules:
+- Translate ONLY user-facing free-text fields: the day title, dayTips, and each item's title, summary, description, address, notes, routeFrom, routeTo.
+- Keep ids, dayNumber, order, numbers, urls, coordinates, booleans, enums, and machine keys exactly as in the input.
+- ${locale.writeNatural}
+- In address fields keep the local street name as-is and translate only the Hebrew parts (e.g. בודפשט -> Budapest, הונגריה -> Hungary).
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
+- If a field is empty or missing in the input, return it empty.
+
+The ONLY allowed output shape:
+{
+  "target_lang": "${locale.targetLang}",
+  "translation": {
+    "schedule": [...]
+  }
+}
+`.trim();
+}
+
+export function buildTripDetailsTranslationSystemPrompt(lang = "en") {
+  const locale = tripTranslationLocaleHints(lang);
+  return `
+You translate TripTap trip templates from Hebrew to ${locale.languageName} for a travel app.
+You receive everything about one trip EXCEPT the day-by-day schedule: its name and description, the places list, the hotels, and the booking links. You receive all of it in a single request and must return it fully translated in a single JSON response.
+Return valid JSON only. No markdown, no commentary, no code fences, no extra keys.
+
+Completion contract:
+- Translate the whole payload in this one response.
+- Never stop early, never summarize, never return only the first item.
+- Every output array (places, hotels, bookingLinks) must have exactly the same length and order as the matching input array.
+- Before returning, verify the JSON is complete, parseable, and closed with all braces/brackets.
+- If wording becomes long, shorten the translation rather than dropping any item or field.
+
+Rules:
+- Translate ONLY user-facing free-text fields:
+  - Trip: name, description, mainDestination, country, city.
+  - Place: name, destination, shortDescription, description, location, hours, foodType.
+  - Hotel: hotelName, destination, address, summary, breakfast, kosher/shabbat reasons, notes, locationRating, bookingRatingText, googleRatingText.
+  - Booking: placeTitle, title, summary, priceRange, destination.
+- Keep ids, placeId, provider, urls, coordinates, image fields, starRating, booleans, numbers, and machine keys exactly as in the input.
+- ${locale.writeNatural}
+- In address/location fields keep the local street name as-is and translate only the Hebrew parts (e.g. בודפשט -> Budapest, הונגריה -> Hungary).
+- ${locale.dayNamesRule}
+- For priceRange keep currency symbols and numbers; translate words like "לאדם" to "${locale.perPerson}".
+- For rating text like "לא נמצא" translate to "${locale.notFound}".
+- Do NOT put literal line breaks inside JSON string values. Use \\n only if a line break is necessary.
+- If a field is empty or missing in the input, return it empty.
+
+The ONLY allowed output shape:
+{
+  "target_lang": "${locale.targetLang}",
+  "translation": {
+    "name": "...",
+    "description": "...",
+    "mainDestination": "...",
+    "country": "...",
+    "city": "...",
+    "places": [...],
+    "hotels": [...],
+    "bookingLinks": [...]
+  }
+}
+
+Include only sections present in the input payload.
+`.trim();
+}
+
 export const TRIP_TRANSLATION_SYSTEM_PROMPT = `
 You translate TripTap trip templates from Hebrew to English for a travel app.
 Return valid JSON only. No markdown, no commentary, no extra keys.
+
+Completion contract:
+- You must translate the entire input payload in one complete response.
+- Do not stop early, do not summarize, and do not return only the first item.
+- Every array in the output must have the same length and order as the matching input array.
+- Before returning, verify that the JSON is complete, parseable, and closed with all braces/brackets.
+- If wording becomes long, make the translation shorter rather than omitting fields or items.
 
 Rules:
 - Translate ONLY user-facing free-text fields. Keep ids, numbers, urls, coords, booleans, enums, provider names, star ratings unchanged.
@@ -55,6 +176,13 @@ export const TRIP_SCHEDULE_TRANSLATION_SYSTEM_PROMPT = `
 You translate the itinerary part of TripTap trip templates from Hebrew to English for a travel app.
 Return valid JSON only. No markdown, no commentary, no extra keys.
 
+Completion contract:
+- You must translate the entire input payload in one complete response.
+- Do not stop early, do not summarize, and do not return only the first day or first item.
+- schedule and places must keep the exact same array lengths and order as the input.
+- Before returning, verify that the JSON is complete, parseable, and closed with all braces/brackets.
+- If wording becomes long, make the translation shorter rather than omitting fields or items.
+
 Rules:
 - Translate ONLY user-facing free-text fields. Keep ids, numbers, urls, coords, booleans, enums, category keys, reservation enums, and provider names unchanged.
 - Preserve the exact structure and array lengths from the input.
@@ -81,9 +209,20 @@ The ONLY allowed output shape:
 Include only sections present in the input payload.
 `.trim();
 
+export const TRIP_SCHEDULE_ONLY_TRANSLATION_SYSTEM_PROMPT = buildTripScheduleOnlyTranslationSystemPrompt("en");
+
+export const TRIP_DETAILS_TRANSLATION_SYSTEM_PROMPT = buildTripDetailsTranslationSystemPrompt("en");
+
 export const TRIP_COMMERCE_TRANSLATION_SYSTEM_PROMPT = `
 You translate TripTap hotel recommendations and attraction booking links from Hebrew to English.
 Return valid JSON only. No markdown, no commentary, no extra keys.
+
+Completion contract:
+- You must translate the entire input payload in one complete response.
+- Do not stop early, do not summarize, and do not return only the first hotel or first booking link.
+- hotels and bookingLinks must keep the exact same array lengths and order as the input.
+- Before returning, verify that the JSON is complete, parseable, and closed with all braces/brackets.
+- If wording becomes long, make the translation shorter rather than omitting fields or items.
 
 Rules:
 - Keep ids, placeId, provider, urls, coords, image fields, starRating, booleans, and numeric ratings unchanged.
@@ -110,6 +249,11 @@ export const HOTELS_TRANSLATION_SYSTEM_PROMPT = `
 You translate TripTap hotel recommendations from Hebrew to English.
 Return valid JSON only. No markdown.
 
+Completion contract:
+- Translate every hotel in the input. Do not stop early and do not return a partial hotels array.
+- hotels must keep the exact same array length and order as the input.
+- Before returning, verify that the JSON is complete, parseable, and closed with all braces/brackets.
+
 Rules:
 - Keep ids, starRating, urls, coords, booleans, numeric ratings unchanged.
 - Translate hotelName, destination, address, summary, breakfast, kosher/shabbat reasons, notes, locationRating, bookingRatingText, googleRatingText.
@@ -130,6 +274,11 @@ Output shape:
 export const BOOKINGS_TRANSLATION_SYSTEM_PROMPT = `
 You translate TripTap attraction booking links from Hebrew to English.
 Return valid JSON only. No markdown.
+
+Completion contract:
+- Translate every booking link in the input. Do not stop early and do not return a partial bookingLinks array.
+- bookingLinks must keep the exact same array length and order as the input.
+- Before returning, verify that the JSON is complete, parseable, and closed with all braces/brackets.
 
 Rules:
 - Keep ids, placeId, provider, urls, coords, image fields unchanged.
@@ -565,10 +714,10 @@ function bookingPayload(booking) {
   };
 }
 
-export function buildTripTranslationPayload(template) {
+export function buildTripTranslationPayload(template, langCode = "en") {
   return {
     template_id: text(template?.id),
-    target_lang: "en",
+    target_lang: langCode,
     name: text(template?.name),
     description: text(template?.description),
     mainDestination: text(template?.mainDestination),
@@ -586,10 +735,10 @@ export function buildTripTranslationPayload(template) {
   };
 }
 
-export function buildTripScheduleTranslationPayload(template) {
+export function buildTripScheduleTranslationPayload(template, langCode = "en") {
   return {
     template_id: text(template?.id),
-    target_lang: "en",
+    target_lang: langCode,
     name: text(template?.name),
     description: text(template?.description),
     mainDestination: text(template?.mainDestination),
@@ -605,10 +754,38 @@ export function buildTripScheduleTranslationPayload(template) {
   };
 }
 
-export function buildTripCommerceTranslationPayload(template) {
+export function buildTripScheduleOnlyTranslationPayload(template, langCode = "en") {
   return {
     template_id: text(template?.id),
-    target_lang: "en",
+    target_lang: langCode,
+    schedule: (template?.schedule || []).map((day) => ({
+      dayNumber: Number(day?.dayNumber || 0),
+      title: text(day?.title),
+      dayTips: Array.isArray(day?.dayTips) ? day.dayTips.map((tip) => text(tip)).filter(Boolean) : [],
+      items: (day?.items || []).map(scheduleItemPayload)
+    }))
+  };
+}
+
+export function buildTripDetailsTranslationPayload(template, langCode = "en") {
+  return {
+    template_id: text(template?.id),
+    target_lang: langCode,
+    name: text(template?.name),
+    description: text(template?.description),
+    mainDestination: text(template?.mainDestination),
+    country: text(template?.country),
+    city: text(template?.city),
+    places: (template?.places || []).map(placePayload),
+    hotels: (template?.hotels || []).map(hotelPayload),
+    bookingLinks: (template?.bookingLinks || []).map(bookingPayload)
+  };
+}
+
+export function buildTripCommerceTranslationPayload(template, langCode = "en") {
+  return {
+    template_id: text(template?.id),
+    target_lang: langCode,
     name: text(template?.name),
     mainDestination: text(template?.mainDestination),
     hotels: (template?.hotels || []).map(hotelPayload),
@@ -616,20 +793,20 @@ export function buildTripCommerceTranslationPayload(template) {
   };
 }
 
-export function buildHotelsTranslationPayload(template) {
+export function buildHotelsTranslationPayload(template, langCode = "en") {
   return {
     template_id: text(template?.id),
-    target_lang: "en",
+    target_lang: langCode,
     name: text(template?.name),
     mainDestination: text(template?.mainDestination),
     hotels: (template?.hotels || []).map(hotelPayload)
   };
 }
 
-export function buildBookingsTranslationPayload(template) {
+export function buildBookingsTranslationPayload(template, langCode = "en") {
   return {
     template_id: text(template?.id),
-    target_lang: "en",
+    target_lang: langCode,
     name: text(template?.name),
     mainDestination: text(template?.mainDestination),
     bookingLinks: (template?.bookingLinks || []).map(bookingPayload)
@@ -651,13 +828,15 @@ export function hasEnglishTranslation(template) {
 }
 
 export function translationLangLabel(langCode) {
-  if (langCode === "fr") return "צרפתית";
-  return "אנגלית";
+  return tripTranslationLangConfig(langCode).label;
 }
 
 export function translationLangBadge(langCode) {
-  if (langCode === "fr") return "FR";
-  return "EN";
+  return tripTranslationLangConfig(langCode).value.toUpperCase();
+}
+
+export function translationTargetKey(langCode = "en") {
+  return `translations.${langCode}`;
 }
 
 export function applyTranslationFilter(items, filter, langCode = "en") {
@@ -669,6 +848,52 @@ export function applyTranslationFilter(items, filter, langCode = "en") {
     return items.filter((item) => hasLangTranslation(item, langCode));
   }
   return items;
+}
+
+export function renderTranslationLangControls(prefix, langCode = "en") {
+  return `
+    <label class="edit-field">
+      <span>שפת יעד</span>
+      <select id="${prefix}LangSelect">
+        ${TRIP_TRANSLATION_LANG_OPTIONS.map((option) => `<option value="${option.value}" ${langCode === option.value ? "selected" : ""}>${option.label} (${option.value.toUpperCase()})</option>`).join("")}
+      </select>
+    </label>
+  `;
+}
+
+export function syncTranslationLangControls(prefix, state, saving = false) {
+  const select = document.getElementById(`${prefix}LangSelect`);
+  if (!select) return;
+  select.value = state.lang || "en";
+  select.disabled = saving;
+}
+
+export function bindTranslationLangControls(prefix, state, onChange) {
+  document.getElementById(`${prefix}LangSelect`)?.addEventListener("change", (event) => {
+    state.lang = event.target.value === "fr" ? "fr" : "en";
+    saveAiPreference(prefix, "lang", state.lang);
+    if (state.pendingTranslations) state.pendingTranslations = {};
+    syncTranslationFilterSelectOptions(prefix, state.lang, state.filter || "all");
+    syncTranslationWorkspaceLabels(prefix, state);
+    onChange?.();
+  });
+}
+
+export function syncTranslationWorkspaceLabels(prefix, state) {
+  const langLabel = translationLangLabel(state.lang || "en");
+  const langKey = translationTargetKey(state.lang || "en");
+  const pendingSave = Boolean(document.getElementById(`${prefix}SaveButton`));
+  const translateLabel = document.getElementById(`${prefix}TranslateButtonLabel`);
+  if (translateLabel) translateLabel.textContent = `תרגם נבחרים ל${langLabel}`;
+  syncTranslationFilterSelectOptions(prefix, state.lang || "en", state.filter || "all");
+  const workspaceDesc = document.getElementById(`${prefix}WorkspaceDesc`);
+  if (workspaceDesc) {
+    workspaceDesc.textContent = pendingSave
+      ? `כל הפריטים נשלחים ל-AI וממתינים לאישור לפני שמירה ב-${langKey}.`
+      : `כל הפריטים נשלחים כ-JSON מלא. התוצאה נשמרת ב-${langKey}.`;
+  }
+  const listDesc = document.getElementById(`${prefix}ListDesc`);
+  if (listDesc) listDesc.textContent = `טען תבניות, בחר פריטים, שלח JSON ל-AI ושמור תחת ${langKey}.`;
 }
 
 export function renderTranslationFilterControls(prefix, langCode = "en") {
@@ -791,7 +1016,7 @@ export function createTranslationState(featureKey) {
     saving: false,
     search: "",
     filter: "all",
-    lang: "en",
+    lang: storedAiPreference(featureKey, "lang", "en"),
     aiModel: storedAiPreference(featureKey, "model", "deepseek-v4-pro"),
     thinkingEnabled: storedAiPreference(featureKey, "thinkingEnabled", "true") !== "false",
     reasoningEffort: storedAiPreference(featureKey, "reasoningEffort", "high"),
@@ -807,10 +1032,15 @@ export function renderTranslationWorkspace({
   loadLabel,
   translateLabel,
   saveLabel = "",
+  lang = "en",
   aiModel,
   thinkingEnabled,
   reasoningEffort
 }) {
+  const langKey = translationTargetKey(lang);
+  const pendingSaveNote = saveLabel
+    ? `כל ${escapeHtml(entityLabel)} נשלח ל-AI וממתין לאישור לפני שמירה ב-${langKey}.`
+    : `כל ${escapeHtml(entityLabel)} נשלח כ-JSON מלא. התוצאה נשמרת ב-${langKey}.`;
   return `
     <div class="workspace-grid duplicate-layout">
       <article class="panel">
@@ -818,7 +1048,7 @@ export function renderTranslationWorkspace({
           <span class="panel-icon blue"><i data-lucide="languages" aria-hidden="true"></i></span>
           <div>
             <h2>תרגום ${escapeHtml(entityLabel)}</h2>
-            <p>טען תבניות, בחר פריטים, שלח JSON ל-AI ושמור תחת translations.en.</p>
+            <p id="${prefix}ListDesc">טען תבניות, בחר פריטים, שלח JSON ל-AI ושמור תחת ${langKey}.</p>
           </div>
         </div>
         <div class="current-summary-row">
@@ -830,11 +1060,12 @@ export function renderTranslationWorkspace({
             <span>בחר הכל</span>
           </button>
         </div>
+        ${renderTranslationLangControls(prefix, lang)}
         <label class="edit-field">
           <span>חיפוש</span>
           <input type="search" id="${prefix}SearchInput" placeholder="שם, יעד..." />
         </label>
-        ${renderTranslationFilterControls(prefix, "en")}
+        ${renderTranslationFilterControls(prefix, lang)}
         <div class="action-row">
           <button class="primary-action" type="button" id="${prefix}LoadButton">
             <i data-lucide="download-cloud" aria-hidden="true"></i>
@@ -849,7 +1080,7 @@ export function renderTranslationWorkspace({
           <span class="panel-icon violet"><i data-lucide="sparkles" aria-hidden="true"></i></span>
           <div>
             <h2>תרגום עם AI</h2>
-            <p>${saveLabel ? `כל ${escapeHtml(entityLabel)} נשלח ל-AI וממתין לאישור לפני שמירה.` : `כל ${escapeHtml(entityLabel)} נשלח כ-JSON מלא. התוצאה נשמרת ב-translations.en.`}</p>
+            <p id="${prefix}WorkspaceDesc">${pendingSaveNote}</p>
           </div>
         </div>
         ${renderTranslationAiControls(prefix, aiModel, thinkingEnabled, reasoningEffort)}
