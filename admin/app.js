@@ -341,7 +341,7 @@ const PLACES_VIEW_CONFIG = {
   },
   approve: {
     title: "אישור מקומות",
-    subtitle: "מעבר על מקומות חדשים שנוספו ל-TripInspo לפני שהם מקבלים אישור מנהל.",
+    subtitle: "מעבר על מקומות חדשים ועל בקשות עריכה לפני פרסום ב-TripInspo.",
     actions: `
       <button class="primary-action" type="button" id="reloadApprovalPlacesButton">
         <i data-lucide="download-cloud" aria-hidden="true"></i>
@@ -734,7 +734,7 @@ function renderPage() {
               <span class="panel-icon blue"><i data-lucide="badge-check" aria-hidden="true"></i></span>
               <div>
                 <h2>מקומות שממתינים לאישור מנהל</h2>
-                <p>טען מקומות שלא קיבלו אישור, פתח כרטיסיה לפרטים מלאים, בדוק באינטרנט ואשר רק מה שבטוח לפרסום.</p>
+                <p>טען מקומות חדשים ובקשות עריכה, פתח כרטיסיה לפרטים מלאים, ואשר או דחה עם הסבר למשתמש.</p>
               </div>
             </div>
             <div class="current-summary-row">
@@ -3042,7 +3042,7 @@ async function loadApprovalPlaces({ force = false } = {}) {
     const snap = await fs.getDocs(fs.collection(state.firebase.db, "public_places"));
     const allPlaces = snap.docs.map(docToPlace).sort((a, b) => timestampMillis(b.sharedAt) - timestampMillis(a.sharedAt));
     state.currentPlaces = allPlaces;
-    state.approvalPlaces = allPlaces.filter((place) => place.adminApproved !== true);
+    state.approvalPlaces = allPlaces.filter((place) => placeModerationStatus(place) === "pending");
     state.approvalLoaded = true;
     renderApprovalPlaces();
     setStatus("approvalStatus", state.approvalPlaces.length ? `נטענו ${state.approvalPlaces.length} מקומות שממתינים לאישור מנהל.` : "אין כרגע מקומות שממתינים לאישור.");
@@ -3089,19 +3089,21 @@ function renderApprovalPlaces() {
     renderApprovalPlaces();
   }));
   container.querySelectorAll("[data-approval-detail-id]").forEach((button) => button.addEventListener("click", () => openCurrentPlaceDialog(button.dataset.approvalDetailId)));
+  container.querySelectorAll("[data-approval-reject-id]").forEach((button) => button.addEventListener("click", () => rejectApprovalPlace(button.dataset.approvalRejectId)));
   applyPixabayResolvers(container);
   refreshIcons();
 }
 
 function renderApprovalCard(place) {
   const searchUrl = webSearchUrl([place.name, place.destination || destinationHint(place), place.location].filter(Boolean).join(" "));
+  const submissionLabel = place.submissionType === "edit" ? "בקשת עריכה" : "מקום חדש";
   return `<article class="place-card approval-card" data-approval-card-id="${escapeAttr(place.id)}">
     ${imageHtml(place)}
     <div class="place-body">
       <label class="check-row approval-check"><input type="checkbox" data-approval-id="${escapeAttr(place.id)}" ${state.selectedApprovalIds.has(place.id) ? "checked" : ""} /> בחירה לאישור</label>
       <div class="compact-card-title-row">
         <h3>${escapeHtml(place.name || "ללא שם")}</h3>
-        <span class="booking-link-pill">${escapeHtml(placeTypeLabel(place.type))}</span>
+        <span class="booking-link-pill">${escapeHtml(submissionLabel)}</span>
       </div>
       ${renderPlaceTags(place)}
       <p class="compact-card-summary">${escapeHtml(place.shortDescription || place.description || "אין פירוט קצר")}</p>
@@ -3117,6 +3119,10 @@ function renderApprovalCard(place) {
         <button class="ghost-action small-action" type="button" data-approval-detail-id="${escapeAttr(place.id)}" onclick="event.stopPropagation();">
           <i data-lucide="panel-top-open" aria-hidden="true"></i>
           <span>פרטים</span>
+        </button>
+        <button class="ghost-action small-action danger-lite" type="button" data-approval-reject-id="${escapeAttr(place.id)}" onclick="event.stopPropagation();">
+          <i data-lucide="message-square-x" aria-hidden="true"></i>
+          <span>דחה עם סיבה</span>
         </button>
       </div>
     </div>
@@ -3163,9 +3169,14 @@ async function approveSelectedPlaces() {
       try {
         const data = {
           adminApproved: true,
+          moderationStatus: "approved",
           adminApprovedAt: fs.serverTimestamp(),
           adminApprovedBy: state.user.email || "admin",
           adminApprovedByUid: state.user.uid || null,
+          reviewedAt: fs.serverTimestamp(),
+          reviewedBy: state.user.email || "admin",
+          reviewedByUid: state.user.uid || null,
+          rejectionReason: fs.deleteField(),
           updatedAt: fs.serverTimestamp()
         };
         const ref = fs.doc(state.firebase.db, "public_places", place.id);
@@ -3192,6 +3203,114 @@ async function approveSelectedPlaces() {
     failures.length ? `אושרו ${approved} מקומות. ${failures.length} נכשלו: ${failures.slice(0, 3).join(" | ")}${failures.length > 3 ? ` ועוד ${failures.length - 3}` : ""}` : `אושרו ${approved} מקומות על ידי מנהל.`,
     failures.length > 0
   );
+}
+
+function placeModerationStatus(place) {
+  if (["pending", "approved", "rejected"].includes(place?.moderationStatus)) return place.moderationStatus;
+  return place?.adminApproved === true ? "approved" : "pending";
+}
+
+function requestApprovalRejectionReason(place) {
+  let dialog = $("approvalRejectDialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "approvalRejectDialog";
+    dialog.className = "image-dialog edit-dialog";
+    dialog.innerHTML = `
+      <div class="image-dialog-shell edit-dialog-shell">
+        <div class="dialog-header">
+          <div><p class="eyebrow">Moderation</p><h2 id="approvalRejectDialogTitle">דחיית מקום</h2></div>
+          <button class="icon-button" type="button" data-reject-cancel aria-label="סגור"><i data-lucide="x"></i></button>
+        </div>
+        <p class="compact-card-summary">הסיבה תוצג למשתמש כדי שיוכל לתקן את הפרטים ולשלוח מחדש.</p>
+        <label class="edit-field full"><span>פירוט סיבת הדחייה</span><textarea id="approvalRejectReason" rows="6" maxlength="2000" placeholder="לדוגמה: חסרה כתובת מדויקת או שהתמונה אינה תואמת למקום"></textarea></label>
+        <p class="status-line" id="approvalRejectError"></p>
+        <div class="action-row split-actions">
+          <button class="ghost-action" type="button" data-reject-cancel>ביטול</button>
+          <button class="primary-action danger-lite" type="button" data-reject-confirm><i data-lucide="message-square-x"></i><span>דחה ושלח סיבה</span></button>
+        </div>
+      </div>`;
+    document.body.appendChild(dialog);
+  }
+
+  $("approvalRejectDialogTitle").textContent = `דחיית ${place?.name || "המקום"}`;
+  const textarea = $("approvalRejectReason");
+  const error = $("approvalRejectError");
+  textarea.value = "";
+  error.textContent = "";
+  refreshIcons();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      dialog.querySelector("[data-reject-confirm]")?.removeEventListener("click", onConfirm);
+      dialog.querySelectorAll("[data-reject-cancel]").forEach((button) => button.removeEventListener("click", onCancel));
+      dialog.removeEventListener("cancel", onCancel);
+      if (dialog.open) dialog.close();
+      resolve(value);
+    };
+    const onConfirm = () => {
+      const reason = textarea.value.trim();
+      if (reason.length < 3) {
+        error.textContent = "יש לכתוב סיבה מפורטת לפני הדחייה.";
+        textarea.focus();
+        return;
+      }
+      finish(reason);
+    };
+    const onCancel = (event) => {
+      event?.preventDefault?.();
+      finish(null);
+    };
+    dialog.querySelector("[data-reject-confirm]")?.addEventListener("click", onConfirm);
+    dialog.querySelectorAll("[data-reject-cancel]").forEach((button) => button.addEventListener("click", onCancel));
+    dialog.addEventListener("cancel", onCancel);
+    dialog.showModal();
+    textarea.focus();
+  });
+}
+
+async function rejectApprovalPlace(placeId) {
+  const place = state.approvalPlaces.find((item) => item.id === placeId);
+  if (!place || state.approvalSaving) return;
+  const reason = await requestApprovalRejectionReason(place);
+  if (!reason) return;
+
+  state.approvalSaving = true;
+  renderApprovalPlaces();
+  setStatus("approvalStatus", `דוחה את ${place.name || "המקום"}...`);
+  try {
+    await ensureFreshAdminAuthToken();
+    const fs = state.firebase.firestore;
+    const data = {
+      adminApproved: false,
+      moderationStatus: "rejected",
+      rejectionReason: reason,
+      reviewedAt: fs.serverTimestamp(),
+      reviewedBy: state.user.email || "admin",
+      reviewedByUid: state.user.uid || null,
+      adminApprovedAt: fs.deleteField(),
+      adminApprovedBy: fs.deleteField(),
+      adminApprovedByUid: fs.deleteField(),
+      updatedAt: fs.serverTimestamp()
+    };
+    const ref = fs.doc(state.firebase.db, "public_places", place.id);
+    await fs.setDoc(ref, data, { merge: true });
+    state.approvalPlaces = state.approvalPlaces.filter((item) => item.id !== place.id);
+    state.selectedApprovalIds.delete(place.id);
+    const currentPlace = state.currentPlaces.find((item) => item.id === place.id);
+    if (currentPlace) Object.assign(currentPlace, data, { moderationStatus: "rejected", rejectionReason: reason });
+    setStatus("approvalStatus", `${place.name || "המקום"} נדחה והסיבה נשמרה למשתמש.`);
+    showToast("המקום נדחה והסיבה נשמרה.", "success");
+  } catch (error) {
+    setStatus("approvalStatus", `דחיית המקום נכשלה: ${firebaseErrorMessage(error)}`, true);
+    showToast("דחיית המקום נכשלה.", "error");
+  } finally {
+    state.approvalSaving = false;
+    renderApprovalPlaces();
+  }
 }
 
 async function loadOpeningHoursPlaces({ force = false } = {}) {
@@ -3686,7 +3805,9 @@ function renderCurrentPlaceMetaChips(place) {
     `<span class="info-chip rating-chip">⭐ ${escapeHtml(place.rating ? Number(place.rating).toFixed(1) : "ללא דירוג")}</span>`,
     `<span class="info-chip type-chip">${escapeHtml(place.coverEmoji || PLACE_EMOJI[place.type] || "📌")} ${escapeHtml(placeTypeLabel(place.type))}</span>`
   ];
-  chips.push(`<span class="info-chip ${place.adminApproved === true ? "approval-chip" : "pending-chip"}">${place.adminApproved === true ? "אושר מנהל" : "ממתין לאישור"}</span>`);
+  const moderation = placeModerationStatus(place);
+  const moderationLabel = moderation === "approved" ? "אושר מנהל" : moderation === "rejected" ? "לא אושר" : "ממתין לאישור";
+  chips.push(`<span class="info-chip ${moderation === "approved" ? "approval-chip" : "pending-chip"}">${moderationLabel}</span>`);
   if (place.hoursAdminApproved === true) chips.push(`<span class="info-chip hours-chip">אושרו שעות</span>`);
   if (place.isKosher) chips.push(`<span class="info-chip kosher-chip">כשר ✓</span>`);
   if (place.kosherFriendly) chips.push(`<span class="info-chip kosher-friendly-chip">ידידותי לכשרות ✓</span>`);
@@ -3722,6 +3843,9 @@ function currentPlaceAdminDetails(place, website) {
     ["Pixabay Page", place.pixabayPageUrl],
     ["Emoji", place.coverEmoji],
     ["צבע רקע", place.coverBackgroundHex],
+    ["סטטוס בקשה", placeModerationStatus(place)],
+    ["סוג בקשה", place.submissionType === "edit" ? "עריכת מקום קיים" : "מקום חדש"],
+    ["סיבת דחייה", place.rejectionReason],
     ["אישור מנהל", place.adminApproved === true ? "אושר על ידי מנהל" : "לא אושר עדיין"],
     ["אושר בתאריך", formatAdminDate(place.adminApprovedAt)],
     ["אושר על ידי", place.adminApprovedBy],
@@ -4887,7 +5011,7 @@ async function saveAllDrafts() {
       "importStatus",
       failedIds.size
         ? `נשמרו ${saved} מקומות. ${failedIds.size} כרטיסיות לא נשמרו ונשארו ברשימה.${failureNote}`
-        : `נשמרו ${saved} מקומות ל-TripInspo. הם יופיעו גם בלשונית אישור מקומות.`,
+        : `נשמרו ${saved} מקומות ל-TripInspo ופורסמו מיד.`,
       failedIds.size > 0
     );
     showToast(failedIds.size ? `השמירה הסתיימה. ${saved} נשמרו ו-${failedIds.size} נשארו להשלמה.` : `השמירה הושלמה. נשמרו ${saved} מקומות.`, failedIds.size ? "warning" : "success");
@@ -5077,7 +5201,7 @@ async function saveDraft(draft, options = {}) {
     const data = publicPlaceData(draft);
     await state.firebase.firestore.addDoc(state.firebase.firestore.collection(state.firebase.db, "public_places"), data);
     if (!quiet) {
-      setStatus("importStatus", `${draft.name || "המקום"} נשמר ל-TripInspo.${imageWarning} הוא יופיע גם בלשונית אישור מקומות.`, Boolean(imageWarning));
+      setStatus("importStatus", `${draft.name || "המקום"} נשמר ל-TripInspo ופורסם מיד.${imageWarning}`, Boolean(imageWarning));
       showToast(`${draft.name || "המקום"} נשמר ל-TripInspo.`, imageWarning ? "warning" : "success");
     }
     if (!options.keepInDrafts) {
@@ -5127,6 +5251,17 @@ function publicPlaceData(draft, existing = null) {
     isAtmosphereImage: Boolean(draft.isAtmosphereImage),
     pixabayId: storedOnR2 ? null : pixabayIdValue(draft.pixabayId),
     pixabayPageUrl: storedOnR2 ? null : nullable(draft.pixabayPageUrl),
+    adminApproved: true,
+    moderationStatus: "approved",
+    submissionType: existing?.submissionType === "edit" ? "edit" : "create",
+    rejectionReason: null,
+    reviewRequestedAt: existing?.reviewRequestedAt || state.firebase.firestore.serverTimestamp(),
+    reviewedAt: state.firebase.firestore.serverTimestamp(),
+    reviewedBy: state.user?.email || "admin",
+    reviewedByUid: state.user?.uid || null,
+    adminApprovedAt: state.firebase.firestore.serverTimestamp(),
+    adminApprovedBy: state.user?.email || "admin",
+    adminApprovedByUid: state.user?.uid || null,
     sharedByUsername: username,
     sharedByUid: uid,
     sharedAt: existing?.sharedAt || state.firebase.firestore.serverTimestamp(),
@@ -6709,7 +6844,9 @@ function bindChoiceFields(container) {
 
 function renderPlaceTags(place) {
   const tags = [];
-  tags.push(`<span class="info-chip ${place.adminApproved === true ? "approval-chip" : "pending-chip"}">${place.adminApproved === true ? "אושר מנהל" : "ממתין לאישור"}</span>`);
+  const moderation = placeModerationStatus(place);
+  const moderationLabel = moderation === "approved" ? "אושר מנהל" : moderation === "rejected" ? "לא אושר" : "ממתין לאישור";
+  tags.push(`<span class="info-chip ${moderation === "approved" ? "approval-chip" : "pending-chip"}">${moderationLabel}</span>`);
   if (place.isKosher) tags.push(`<span class="info-chip kosher-chip">כשר ✓</span>`);
   if (place.kosherFriendly) tags.push(`<span class="info-chip kosher-friendly-chip">ידידותי לכשרות ✓</span>`);
   if (text(place.foodType)) tags.push(`<span class="info-chip food-chip">${escapeHtml(foodEmoji(place.foodType))} ${escapeHtml(foodTypeLabel(place.foodType))}</span>`);
