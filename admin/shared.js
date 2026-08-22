@@ -425,7 +425,7 @@ export const ADMIN_WORKFLOW_URL = "https://trip-planner-ai-workflow.nakachedoron
 const ADMIN_R2_WORKFLOW_URL = ADMIN_WORKFLOW_URL;
 const ADMIN_R2_MAX_BYTES = 15 * 1024 * 1024;
 
-async function adminWorkerPost(user, path, body) {
+export async function adminWorkerPost(user, path, body) {
   if (!user) throw new Error("Missing Firebase user for worker call");
   const idToken = await user.getIdToken();
   const response = await fetch(`${ADMIN_WORKFLOW_URL}${path}`, {
