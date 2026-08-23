@@ -11,6 +11,12 @@ export const ADMIN_EMAIL = "doronenakache@gmail.com";
 
 const NAV_ITEMS = [
   {
+    key: "analytics",
+    href: "./analytics.html",
+    icon: "chart-no-axes-combined",
+    label: "אנליטיקות"
+  },
+  {
     key: "users",
     href: "./users.html",
     icon: "users",

@@ -1,8 +1,10 @@
-const CACHE = "triptap-v4";
+const CACHE = "triptap-v5";
 const ASSETS = [
   "./",
   "./index.html",
   "./login.html",
+  "./analytics.html",
+  "./analytics.js",
   "./styles.css",
   "./assets/hero.svg",
   "./assets/icon.svg",
