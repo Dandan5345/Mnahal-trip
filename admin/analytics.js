@@ -12,10 +12,7 @@ const state = {
   data: null,
   userQuery: "",
   userFilter: "all",
-  userSort: "creations",
-  tripQuery: "",
-  tripFilter: "all",
-  tripSort: "updated"
+  userSort: "creations"
 };
 
 const $ = (id) => document.getElementById(id);
@@ -27,7 +24,7 @@ function renderPage() {
   app.innerHTML = createAdminShell({
     activeKey: "analytics",
     title: "מרכז האנליטיקות",
-    subtitle: "תמונה ניהולית של משתמשים, טיולי ענן ותוכן שכבר קיים ב-Firestore.",
+    subtitle: "נתוני Firestore אמיתיים יחד עם פעילות מצטברת ובטוחה שמגיעה מהאפליקציה.",
     actions: `
       <button class="primary-action" type="button" id="reloadAnalyticsButton">
         <i data-lucide="refresh-cw" aria-hidden="true"></i>
@@ -37,9 +34,9 @@ function renderPage() {
     content: `
       <section class="analytics-hero panel">
         <div class="analytics-hero-copy">
-          <span class="analytics-live-badge"><span></span> נתוני Firestore קיימים</span>
-          <h2>כל מה שקורה בענן, במסך אחד.</h2>
-          <p>העמוד קורא נתונים שכבר נשמרים היום — בלי צורך בגרסה חדשה של האפליקציה.</p>
+          <span class="analytics-live-badge"><span></span> Firestore + פעילות אפליקציה</span>
+          <h2>מה קורה ב-TripEase, במסך אחד.</h2>
+          <p>טיולים, פעילות אחרונה, משתמשים שלא חזרו, Premium ותוכן ענן — ללא שמירת תוכן פרטי של הטיול.</p>
           <div class="analytics-hero-meta">
             <span><i data-lucide="shield-check"></i> מנהל מאומת בלבד</span>
             <span><i data-lucide="database"></i> מטא־דאטה בלבד</span>
@@ -78,7 +75,7 @@ function renderPage() {
 
           <article class="panel analytics-chart-panel">
             <div class="analytics-panel-heading">
-              <div><p class="eyebrow">Cloud trips</p><h2>מצב טיולי הענן</h2></div>
+              <div><p class="eyebrow">Trips</p><h2 id="tripStatusTitle">מצב הטיולים</h2></div>
             </div>
             <div class="analytics-donut-layout">
               <div class="analytics-donut" id="tripStatusDonut">
@@ -98,7 +95,7 @@ function renderPage() {
 
         <section class="panel analytics-dataset-panel">
           <div class="analytics-panel-heading analytics-table-heading">
-            <div><p class="eyebrow">Creators</p><h2>פעילות לפי משתמש</h2><p>פירוט יצירות ענן בלבד, ללא תוכן פרטי של הטיול.</p></div>
+            <div><p class="eyebrow">Users</p><h2>פעילות מספרית לפי משתמש</h2><p>ספירות מצטברות בלבד — ללא שמות טיולים, שמות מקומות או תוכן פרטי.</p></div>
             <span class="analytics-result-count" id="visibleCreatorsCount">0 משתמשים</span>
           </div>
           <div class="analytics-controls">
@@ -114,6 +111,7 @@ function renderPage() {
                 <option value="trips">הכי הרבה טיולים</option>
                 <option value="places">הכי הרבה מקומות</option>
                 <option value="videos">הכי הרבה סרטונים</option>
+                <option value="activity">פעילות אחרונה</option>
                 <option value="name">לפי שם</option>
               </select>
             </label>
@@ -123,39 +121,13 @@ function renderPage() {
             ${filterChip("creator", "creators", "sparkles", "יצרו תוכן")}
             ${filterChip("creator", "trips", "route", "עם טיולים")}
             ${filterChip("creator", "premium", "crown", "Premium")}
+            ${filterChip("creator", "recent", "activity", "פעילים השבוע")}
+            ${filterChip("creator", "inactive", "user-round-x", "לא נכנסו מעל שבוע")}
+            ${filterChip("creator", "untracked", "circle-help", "טרם דיווחו")}
             ${filterChip("creator", "blocked", "ban", "חסומים/נמחקו")}
             ${filterChip("creator", "empty", "circle-minus", "ללא יצירות ענן")}
           </div>
           <div class="analytics-user-table" id="analyticsUserTable"></div>
-        </section>
-
-        <section class="panel analytics-dataset-panel">
-          <div class="analytics-panel-heading analytics-table-heading">
-            <div><p class="eyebrow">Trips</p><h2>טיולי ענן</h2><p>איחוד ללא כפילויות של shared_trips ושל trips.</p></div>
-            <span class="analytics-result-count" id="visibleTripsCount">0 טיולים</span>
-          </div>
-          <div class="analytics-controls">
-            <label class="search-input-row analytics-search">
-              <i data-lucide="search" aria-hidden="true"></i>
-              <input id="analyticsTripSearch" type="search" autocomplete="off" placeholder="חיפוש לפי שם טיול, בעלים או מזהה" />
-            </label>
-            <label class="analytics-select-field"><span>מיון</span>
-              <select id="analyticsTripSort">
-                <option value="updated">עודכנו לאחרונה</option>
-                <option value="start">תאריך התחלה</option>
-                <option value="members">מספר משתתפים</option>
-                <option value="name">שם הטיול</option>
-              </select>
-            </label>
-          </div>
-          <div class="analytics-filter-row" id="tripFilters" role="group" aria-label="סינון טיולים">
-            ${filterChip("trip", "all", "layout-grid", "הכול", true)}
-            ${filterChip("trip", "active", "radio", "פעילים עכשיו")}
-            ${filterChip("trip", "upcoming", "calendar-clock", "עתידיים")}
-            ${filterChip("trip", "past", "history", "הסתיימו")}
-            ${filterChip("trip", "undated", "calendar-off", "ללא תאריך מלא")}
-          </div>
-          <div class="analytics-trip-table" id="analyticsTripTable"></div>
         </section>
 
         <section class="panel analytics-scope-panel">
@@ -208,28 +180,17 @@ function bindAnalytics() {
     renderUsers();
   });
 
-  const renderTripsDebounced = debounce(renderTrips);
-  $("analyticsTripSearch")?.addEventListener("input", (event) => {
-    state.tripQuery = event.target.value.trim().toLowerCase();
-    renderTripsDebounced();
-  });
-  $("analyticsTripSort")?.addEventListener("change", (event) => {
-    state.tripSort = event.target.value;
-    renderTrips();
-  });
-
   document.querySelectorAll("[data-analytics-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       const group = button.dataset.analyticsFilter;
       const value = button.dataset.filterValue || "all";
       if (group === "creator") state.userFilter = value;
-      if (group === "trip") state.tripFilter = value;
       document.querySelectorAll(`[data-analytics-filter="${group}"]`).forEach((item) => {
         const active = item.dataset.filterValue === value;
         item.classList.toggle("is-active", active);
         item.setAttribute("aria-pressed", String(active));
       });
-      group === "creator" ? renderUsers() : renderTrips();
+      renderUsers();
     });
   });
 
@@ -275,19 +236,26 @@ function renderAnalytics() {
   renderTripDonut();
   renderContentBreakdown();
   renderUsers();
-  renderTrips();
   renderLimitations();
 }
 
 function renderStats() {
   const s = state.data?.summary || {};
+  const hasSnapshots = Number(state.data?.scope?.operationalSnapshots) > 0;
   const cards = [
     ["users", "users", "משתמשים", "פרופילים קיימים", "blue"],
     ["premiumUsers", "crown", "Premium", "ללא מגבלת AI", "gold"],
-    ["cloudTrips", "route", "טיולי ענן", "קיימים כעת ב-Firestore", "violet"],
-    ["activeTrips", "radio", "פעילים עכשיו", "לפי תאריכי הטיול", "green"],
+    ["recentlyActiveUsers", "activity", "פעילים השבוע", "פתחו את האפליקציה ב-7 ימים", "green"],
+    ["inactiveUsers7Days", "user-round-x", "לא חזרו מעל שבוע", "מבין המשתמשים שכבר דיווחו", "coral"],
+    ["ownedTrips", "route", "טיולים בבעלות", hasSnapshots ? "מה-snapshot האחרון של כל משתמש" : "זמנית: מטיולי הענן הקיימים", "violet"],
+    ["activeTrips", "radio", "טיולים פעילים", hasSnapshots ? "כולל טיולים מקומיים שדווחו" : "זמנית: לפי טיולי הענן", "green"],
     ["upcomingTrips", "calendar-clock", "טיולים עתידיים", "מתחילים אחרי היום", "teal"],
     ["pastTrips", "history", "טיולים שהסתיימו", "לפי תאריך סיום", "slate"],
+    ["deletedTrips", "trash-2", "טיולים שנמחקו", hasSnapshots ? "נספרים מרגע הפעלת האיסוף" : "יתחיל להיספר לאחר עדכון האפליקציה", "coral"],
+    ["savedTripPlaces", "map-pin", "מקומות שמורים בטיולים", hasSnapshots ? "סך הכול בטיולים שבבעלות המשתמשים" : "יתקבל לאחר עדכון האפליקציה", "teal"],
+    ["addedTripPlaces", "map-pin-plus", "מקומות שנוספו", hasSnapshots ? "נספרים מרגע הפעלת האיסוף" : "יתחיל להיספר לאחר עדכון האפליקציה", "green"],
+    ["appOpens", "smartphone", "פתיחות אפליקציה", hasSnapshots ? "מונה מצטבר מאז הפעלת האיסוף" : "יתחיל להיספר לאחר עדכון האפליקציה", "violet"],
+    ["cloudTrips", "cloud", "טיולי ענן", "shared_trips ו-trips ללא כפילויות", "blue"],
     ["publicPlaces", "map-pinned", "מקומות ששותפו", "ב-TripInspo", "coral"],
     ["videos", "clapperboard", "סרטוני Trip Vibes", "כל סטטוסי העיבוד", "pink"]
   ];
@@ -319,7 +287,13 @@ function renderRegistrationChart() {
 }
 
 function renderTripDonut() {
-  const counts = state.data?.breakdowns?.tripStatuses || {};
+  const hasSnapshots = Number(state.data?.scope?.operationalSnapshots) > 0;
+  const counts = hasSnapshots
+    ? state.data?.breakdowns?.operationalTripStatuses || {}
+    : state.data?.breakdowns?.tripStatuses || {};
+  $("tripStatusTitle").textContent = hasSnapshots
+    ? "מצב הטיולים שדווחו מהאפליקציה"
+    : "מצב טיולי הענן";
   const segments = [
     ["active", "פעילים עכשיו", "#16a34a"],
     ["upcoming", "עתידיים", "#2563eb"],
@@ -345,6 +319,10 @@ function renderTripDonut() {
 function renderContentBreakdown() {
   const s = state.data?.summary || {};
   const rows = [
+    ["trackedUsers", "משתמשים עם snapshot פעילות", s.trackedUsers, "#16a34a"],
+    ["activityNotReportedUsers", "משתמשים שטרם דיווחו", s.activityNotReportedUsers, "#94a3b8"],
+    ["appOpens", "פתיחות אפליקציה מצטברות", s.appOpens, "#7c3aed"],
+    ["savedTripPlaces", "מקומות שמורים בטיולים", s.savedTripPlaces, "#0d9488"],
     ["templates", "מסלולים מוכנים", s.templates, "#2563eb"],
     ["publicPlaces", "מקומות ציבוריים", s.publicPlaces, "#0d9488"],
     ["videos", "סרטוני Trip Vibes", s.videos, "#db2777"],
@@ -376,12 +354,19 @@ function renderUsers() {
 }
 
 function filteredUsers() {
+  const activityCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const users = [...(state.data?.users || [])].filter((user) => {
     const search = [user.displayName, user.username, user.uid, user.status].join(" ").toLowerCase();
     if (state.userQuery && !search.includes(state.userQuery)) return false;
     if (state.userFilter === "creators") return user.totalCreated > 0;
-    if (state.userFilter === "trips") return user.cloudTrips > 0;
+    if (state.userFilter === "trips") return user.ownedTrips > 0 || user.cloudTrips > 0;
     if (state.userFilter === "premium") return user.isPremium === true;
+    if (state.userFilter === "recent") return dateMs(user.lastActiveAt) >= activityCutoff;
+    if (state.userFilter === "inactive") {
+      const lastActive = dateMs(user.lastActiveAt);
+      return lastActive > 0 && lastActive < activityCutoff;
+    }
+    if (state.userFilter === "untracked") return !user.lastActiveAt;
     if (state.userFilter === "blocked") return user.status === "blocked" || user.status === "deleted";
     if (state.userFilter === "empty") return user.totalCreated === 0;
     return true;
@@ -390,8 +375,9 @@ function filteredUsers() {
     if (state.userSort === "newest") return dateMs(b.createdAt) - dateMs(a.createdAt);
     if (state.userSort === "oldest") return dateMs(a.createdAt) - dateMs(b.createdAt);
     if (state.userSort === "trips") return b.cloudTrips - a.cloudTrips || b.totalCreated - a.totalCreated;
-    if (state.userSort === "places") return b.publicPlaces - a.publicPlaces || b.totalCreated - a.totalCreated;
+    if (state.userSort === "places") return b.savedTripPlaces - a.savedTripPlaces || b.totalCreated - a.totalCreated;
     if (state.userSort === "videos") return b.videos - a.videos || b.totalCreated - a.totalCreated;
+    if (state.userSort === "activity") return dateMs(b.lastActiveAt) - dateMs(a.lastActiveAt);
     if (state.userSort === "name") return String(a.displayName).localeCompare(String(b.displayName), "he");
     return b.totalCreated - a.totalCreated || dateMs(b.createdAt) - dateMs(a.createdAt);
   });
@@ -404,17 +390,17 @@ function userRow(user) {
     <div class="analytics-user-identity">
       <span class="analytics-avatar">${escapeHtml(initials(user.displayName || user.username))}${user.isPremium ? `<i data-lucide="crown"></i>` : ""}</span>
       <div><div class="analytics-user-name"><strong>${escapeHtml(user.displayName || user.username || "משתמש")}</strong>${user.isPremium ? `<span class="analytics-premium-badge"><i data-lucide="crown"></i> Premium</span>` : ""}</div>
-      <span>@${escapeHtml(user.username || "לא-ידוע")} · נרשם ${escapeHtml(dateOnly(user.createdAt))}</span></div>
+      <span>@${escapeHtml(user.username || "לא-ידוע")} · נרשם ${escapeHtml(dateOnly(user.createdAt))} · ${escapeHtml(activityLabel(user))}</span></div>
     </div>
     <div class="analytics-creation-metrics">
-      ${miniMetric("route", user.cloudTrips, "טיולים")}
-      ${miniMetric("map-pin", user.publicPlaces, "מקומות")}
-      ${miniMetric("clapperboard", user.videos, "סרטונים")}
+      ${miniMetric("route", user.ownedTrips, "טיולים בבעלות")}
+      ${miniMetric("map-pin", user.savedTripPlaces, "מקומות שמורים")}
+      ${miniMetric("smartphone", user.appOpens, "פתיחות")}
     </div>
     <div class="analytics-user-end">
       <span class="analytics-status-badge is-${statusTone}"><span></span>${status}</span>
       <button class="ghost-action analytics-details-button" type="button" data-creator-details="${escapeAttribute(user.uid || `username:${user.username}`)}">
-        <span>מה המשתמש יצר</span><i data-lucide="chevron-left"></i>
+        <span>פירוט מספרי</span><i data-lucide="chevron-left"></i>
       </button>
     </div>
   </article>`;
@@ -424,43 +410,10 @@ function miniMetric(icon, value, label) {
   return `<div><i data-lucide="${icon}"></i><span><strong>${formatNumber(value)}</strong><small>${label}</small></span></div>`;
 }
 
-function renderTrips() {
-  if (!state.data) return;
-  const trips = filteredTrips();
-  $("visibleTripsCount").textContent = `${formatNumber(trips.length)} טיולים`;
-  $("analyticsTripTable").innerHTML = trips.map(tripRow).join("") || emptyState(
-    "map-search",
-    "לא נמצאו טיולי ענן שמתאימים לחיפוש או לסינון."
-  );
-  refreshIcons();
-}
-
-function filteredTrips() {
-  const trips = [...(state.data?.trips || [])].filter((trip) => {
-    const search = [trip.name, trip.id, trip.ownerUsername, trip.ownerUid].join(" ").toLowerCase();
-    if (state.tripQuery && !search.includes(state.tripQuery)) return false;
-    return state.tripFilter === "all" || trip.status === state.tripFilter;
-  });
-  return trips.sort((a, b) => {
-    if (state.tripSort === "start") return dateMs(a.startDate) - dateMs(b.startDate);
-    if (state.tripSort === "members") return b.memberCount - a.memberCount;
-    if (state.tripSort === "name") return String(a.name).localeCompare(String(b.name), "he");
-    return dateMs(b.lastCloudUpdate) - dateMs(a.lastCloudUpdate);
-  });
-}
-
-function tripRow(trip) {
-  const status = tripStatusMeta(trip.status);
-  const owner = trip.ownerUsername ? `@${trip.ownerUsername}` : shortUid(trip.ownerUid);
-  const source = (trip.sources || []).includes("shared") ? "שיתוף בענן" : "סנכרון מסלול";
-  return `<article class="analytics-trip-row">
-    <span class="analytics-trip-icon is-${status.tone}"><i data-lucide="${status.icon}"></i></span>
-    <div class="analytics-trip-main"><strong>${escapeHtml(trip.name || "טיול ללא שם")}</strong><span>${escapeHtml(owner || "בעלים לא ידוע")} · ${escapeHtml(source)}</span></div>
-    <div class="analytics-trip-dates"><small>תאריכים</small><strong>${escapeHtml(tripDateRange(trip))}</strong></div>
-    <div class="analytics-trip-members"><i data-lucide="users"></i><span>${formatNumber(trip.memberCount)} משתתפים</span></div>
-    <span class="analytics-trip-status is-${status.tone}"><span></span>${status.label}</span>
-    <div class="analytics-trip-updated"><small>עדכון ענן אחרון</small><span>${escapeHtml(dateTime(trip.lastCloudUpdate))}</span></div>
-  </article>`;
+function activityLabel(user) {
+  if (!user.lastActiveAt) return "טרם התקבל דיווח פעילות";
+  const platform = user.appPlatform ? ` · ${String(user.appPlatform).toUpperCase()}` : "";
+  return `פעילות אחרונה ${dateTime(user.lastActiveAt)}${platform}`;
 }
 
 function renderLimitations() {
@@ -481,37 +434,20 @@ function openCreatorDialog(identifier) {
       : item.uid === identifier
   );
   if (!user) return;
-  const matches = (item) => (user.uid && item.ownerUid === user.uid)
-    || (user.username && item.ownerUsername === user.username);
-  const trips = (state.data?.trips || []).filter(matches);
-  const places = (state.data?.places || []).filter(matches);
-  const videos = (state.data?.videos || []).filter(matches);
   $("creatorDialogTitle").textContent = user.displayName || `@${user.username}`;
-  $("creatorDialogSubtitle").textContent = `@${user.username || "לא-ידוע"} · ${formatNumber(user.totalCreated)} יצירות ענן`;
+  $("creatorDialogSubtitle").textContent = `@${user.username || "לא-ידוע"} · ${activityLabel(user)}`;
   $("creatorDialogContent").innerHTML = `
     <div class="analytics-dialog-summary">
-      ${miniMetric("route", trips.length, "טיולים")}
-      ${miniMetric("map-pin", places.length, "מקומות")}
-      ${miniMetric("clapperboard", videos.length, "סרטונים")}
+      ${miniMetric("luggage", user.ownedTrips, "טיולים בבעלות")}
+      ${miniMetric("radio", user.activeTrips, "פעילים עכשיו")}
+      ${miniMetric("calendar-clock", user.upcomingTrips, "עתידיים")}
+      ${miniMetric("history", user.pastTrips, "הסתיימו")}
+      ${miniMetric("trash-2", user.deletedTrips, "נמחקו")}
+      ${miniMetric("map-pin", user.savedTripPlaces, "מקומות שמורים")}
+      ${miniMetric("map-pin-plus", user.addedTripPlaces, "מקומות שנוספו")}
+      ${miniMetric("smartphone", user.appOpens, "פתיחות אפליקציה")}
     </div>
-    <div class="analytics-creation-list">
-      ${creationGroup("טיולי ענן", "route", trips.map((trip) => ({
-        title: trip.name,
-        meta: `${tripStatusMeta(trip.status).label} · ${tripDateRange(trip)}`,
-        date: trip.lastCloudUpdate
-      })))}
-      ${creationGroup("מקומות ששותפו", "map-pin", places.map((place) => ({
-        title: place.name,
-        meta: [place.destination, place.type, placeModerationLabel(place.moderationStatus)].filter(Boolean).join(" · "),
-        date: place.createdAt
-      })))}
-      ${creationGroup("סרטוני Trip Vibes", "clapperboard", videos.map((video) => ({
-        title: video.destination ? `וידאו · ${video.destination}` : "וידאו Trip Vibes",
-        meta: `${videoStatusLabel(video.status)}${video.isPrivate ? " · פרטי" : ""} · ${formatNumber(video.viewCount)} צפיות`,
-        date: video.createdAt
-      })))}
-    </div>
-    <p class="analytics-dialog-privacy"><i data-lucide="shield-check"></i> מוצג רק מידע ניהולי מצומצם. תוכן פרטי אינו נטען לעמוד.</p>
+    <p class="analytics-dialog-privacy"><i data-lucide="shield-check"></i> מוצגות ספירות מצטברות בלבד. שמות טיולים, שמות מקומות, מזהי טיולים ותוכן פרטי אינם נטענים לעמוד.</p>
   `;
   const dialog = $("creatorDetailsDialog");
   if (typeof dialog.showModal === "function") dialog.showModal();
@@ -519,43 +455,10 @@ function openCreatorDialog(identifier) {
   refreshIcons();
 }
 
-function creationGroup(title, icon, items) {
-  const sorted = [...items].sort((a, b) => dateMs(b.date) - dateMs(a.date));
-  return `<section class="analytics-creation-group">
-    <div class="analytics-creation-heading"><span><i data-lucide="${icon}"></i>${title}</span><b>${formatNumber(sorted.length)}</b></div>
-    <div>${sorted.map((item) => `<article><span class="analytics-creation-dot"></span><div><strong>${escapeHtml(item.title || "ללא שם")}</strong><p>${escapeHtml(item.meta || "אין פרטים נוספים")}</p></div><time>${escapeHtml(dateOnly(item.date))}</time></article>`).join("") || `<p class="analytics-no-creations">אין יצירות מהסוג הזה בנתוני הענן.</p>`}</div>
-  </section>`;
-}
-
 function closeCreatorDialog() {
   const dialog = $("creatorDetailsDialog");
   if (typeof dialog.close === "function") dialog.close();
   else dialog.removeAttribute("open");
-}
-
-function tripStatusMeta(status) {
-  if (status === "active") return { label: "פעיל עכשיו", tone: "active", icon: "radio" };
-  if (status === "upcoming") return { label: "עתידי", tone: "upcoming", icon: "calendar-clock" };
-  if (status === "past") return { label: "הסתיים", tone: "past", icon: "history" };
-  return { label: "ללא תאריך מלא", tone: "undated", icon: "calendar-off" };
-}
-
-function placeModerationLabel(status) {
-  if (status === "approved") return "מאושר";
-  if (status === "rejected") return "נדחה";
-  return "ממתין לאישור";
-}
-
-function videoStatusLabel(status) {
-  if (status === "ready") return "מוכן";
-  if (status === "failed") return "נכשל";
-  return "בעיבוד";
-}
-
-function tripDateRange(trip) {
-  if (!trip.startDate && !trip.endDate) return "לא הוגדר";
-  if (trip.startDate && trip.endDate) return `${dateOnly(trip.startDate)} – ${dateOnly(trip.endDate)}`;
-  return dateOnly(trip.startDate || trip.endDate);
 }
 
 function emptyState(icon, message) {
@@ -584,11 +487,6 @@ function dateTime(value) {
 function shortDate(value) {
   const ms = dateMs(value);
   return ms ? new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" }).format(new Date(ms)) : "";
-}
-
-function shortUid(value) {
-  const uid = String(value || "");
-  return uid.length > 12 ? `${uid.slice(0, 6)}…${uid.slice(-4)}` : uid;
 }
 
 function initials(value) {
