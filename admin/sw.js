@@ -1,4 +1,4 @@
-const CACHE = "triptap-v6";
+const CACHE = "triptap-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,8 +7,13 @@ const ASSETS = [
   "./analytics.js",
   "./styles.css",
   "./design.css",
+  "./assets/hero.jpg",
   "./assets/hero.svg",
   "./assets/icon.svg",
+  "./assets/icon.png",
+  "./assets/icon-192.png",
+  "./assets/icon-512.png",
+  "./assets/apple-touch-icon.png",
   "./manifest.webmanifest"
 ];
 

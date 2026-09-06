@@ -1,14 +1,106 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ff8a5b"/>
-      <stop offset="50%" stop-color="#ff5d8f"/>
-      <stop offset="100%" stop-color="#7b5cff"/>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#14211f"/>
+      <stop offset="50%" stop-color="#0f1918"/>
+      <stop offset="100%" stop-color="#0a100f"/>
     </linearGradient>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fadb7f"/>
+      <stop offset="50%" stop-color="#dda32a"/>
+      <stop offset="100%" stop-color="#a8761a"/>
+    </linearGradient>
+    <linearGradient id="goldGradLight" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#dda32a"/>
+      <stop offset="100%" stop-color="#fff0b8"/>
+    </linearGradient>
+    <linearGradient id="tealGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#197a71"/>
+      <stop offset="100%" stop-color="#0b4843"/>
+    </linearGradient>
+    <linearGradient id="pinGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe28a"/>
+      <stop offset="60%" stop-color="#dda32a"/>
+      <stop offset="100%" stop-color="#996515"/>
+    </linearGradient>
+    <radialGradient id="compassGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4fbdb0" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#4fbdb0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <circle cx="256" cy="220" r="78" fill="#fff2c2"/>
-  <path d="M40,360 L130,290 L210,340 L300,260 L390,330 L472,280 L472,420 L40,420 Z" fill="#1f1547" opacity="0.85"/>
-  <path d="M40,420 L472,420 L472,472 L40,472 Z" fill="#0e0c2b"/>
-  <path d="M150,180 L220,176 L240,182 L220,188 Z M180,178 L188,168 L196,168 L194,178 Z M180,182 L188,192 L196,192 L194,182 Z" fill="#ffffff"/>
+
+  <!-- Squircle Base -->
+  <rect width="512" height="512" rx="116" fill="url(#bgGrad)"/>
+  <rect width="504" height="504" x="4" y="4" rx="112" fill="none" stroke="url(#goldGrad)" stroke-width="2.5" stroke-opacity="0.45"/>
+
+  <!-- Subtle Globe Lines -->
+  <g stroke="#dda32a" stroke-width="1.2" stroke-opacity="0.18" fill="none">
+    <circle cx="256" cy="270" r="170"/>
+    <ellipse cx="256" cy="270" rx="90" ry="170"/>
+    <ellipse cx="256" cy="270" rx="170" ry="80"/>
+    <line x1="86" y1="270" x2="426" y2="270"/>
+  </g>
+
+  <!-- Outer Ring with Shadow -->
+  <circle cx="256" cy="270" r="132" fill="url(#bgGrad)" filter="url(#shadow)"/>
+  <circle cx="256" cy="270" r="130" fill="url(#tealGrad)"/>
+  <circle cx="256" cy="270" r="130" fill="url(#compassGlow)"/>
+  <circle cx="256" cy="270" r="130" fill="none" stroke="url(#goldGrad)" stroke-width="8"/>
+  <circle cx="256" cy="270" r="120" fill="none" stroke="#dda32a" stroke-width="1.5" stroke-opacity="0.5"/>
+
+  <!-- Compass Tick Marks -->
+  <g stroke="#fadb7f" stroke-width="2" stroke-linecap="round" opacity="0.75">
+    <line x1="256" y1="154" x2="256" y2="162"/>
+    <line x1="256" y1="378" x2="256" y2="386"/>
+    <line x1="140" y1="270" x2="148" y2="270"/>
+    <line x1="364" y1="270" x2="372" y2="270"/>
+    <!-- Diagonals -->
+    <line x1="174" y1="188" x2="180" y2="194"/>
+    <line x1="338" y1="352" x2="332" y2="346"/>
+    <line x1="174" y1="352" x2="180" y2="346"/>
+    <line x1="338" y1="188" x2="332" y2="194"/>
+  </g>
+
+  <!-- Compass Star (8 Points) -->
+  <!-- Minor Points -->
+  <polygon points="256,270 295,231 256,258 217,231" fill="#c48a1c" opacity="0.8"/>
+  <polygon points="256,270 295,309 256,282 217,309" fill="#a06e12" opacity="0.8"/>
+  <!-- Major Points -->
+  <!-- North Arrow (Polished Gold Split) -->
+  <polygon points="256,170 256,270 240,270" fill="#fadb7f"/>
+  <polygon points="256,170 256,270 272,270" fill="#c48a1c"/>
+  <!-- South Arrow -->
+  <polygon points="256,370 256,270 272,270" fill="#fadb7f"/>
+  <polygon points="256,370 256,270 240,270" fill="#a06e12"/>
+  <!-- East Arrow -->
+  <polygon points="356,270 256,270 256,254" fill="#fadb7f"/>
+  <polygon points="356,270 256,270 256,286" fill="#c48a1c"/>
+  <!-- West Arrow -->
+  <polygon points="156,270 256,270 256,286" fill="#fadb7f"/>
+  <polygon points="156,270 256,270 256,254" fill="#a06e12"/>
+
+  <!-- Compass Center Jewel -->
+  <circle cx="256" cy="270" r="14" fill="url(#goldGradLight)" filter="url(#shadow)"/>
+  <circle cx="256" cy="270" r="6" fill="#0b4843"/>
+
+  <!-- Letters: N, S, E, W -->
+  <g font-family="'Rubik', system-ui, sans-serif" font-weight="700" font-size="16" fill="#fadb7f" text-anchor="middle" dominant-baseline="central" opacity="0.9">
+    <text x="256" y="176">N</text>
+    <text x="256" y="364">S</text>
+    <text x="350" y="270">E</text>
+    <text x="162" y="270">W</text>
+  </g>
+
+  <!-- Luxury Location Pin at Top with "T" Monogram -->
+  <g filter="url(#shadow)">
+    <!-- Pin Head & Point -->
+    <path d="M256,86 C225,86 200,111 200,142 C200,182 256,234 256,234 C256,234 312,182 312,142 C312,111 287,86 256,86 Z" fill="url(#pinGrad)" stroke="#fff0b8" stroke-width="2.5"/>
+    <!-- Pin Inner Core -->
+    <circle cx="256" cy="138" r="28" fill="#0f6b63" stroke="#fadb7f" stroke-width="2.5"/>
+    <!-- "T" Letter for TripTap -->
+    <text x="256" y="146" font-family="'Frank Ruhl Libre', serif" font-weight="800" font-size="28" fill="#fff0b8" text-anchor="middle">T</text>
+  </g>
 </svg>

@@ -230,6 +230,17 @@ function createAuthBanner() {
   `;
 }
 
+export function updateMetaThemeColor(theme) {
+  const color = theme === "dark" ? "#131110" : "#f7f5f1";
+  let meta = document.querySelector('meta[name="theme-color"]:not([media])');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute("content", color);
+}
+
 export function applyStoredTheme() {
   let theme = "light";
   try {
@@ -237,6 +248,7 @@ export function applyStoredTheme() {
       || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   } catch (_) { }
   document.documentElement.dataset.theme = theme;
+  updateMetaThemeColor(theme);
   return theme;
 }
 
@@ -251,12 +263,15 @@ function bindThemeToggle() {
   const button = document.getElementById("themeToggle");
   if (!button || button.dataset.bound === "true") return;
   button.dataset.bound = "true";
-  setThemeToggleIcon(document.documentElement.dataset.theme || "light");
+  const current = document.documentElement.dataset.theme || "light";
+  setThemeToggleIcon(current);
+  updateMetaThemeColor(current);
   button.addEventListener("click", () => {
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     try { localStorage.setItem("triptap-theme", next); } catch (_) { }
     setThemeToggleIcon(next);
+    updateMetaThemeColor(next);
   });
 }
 

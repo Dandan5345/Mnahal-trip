@@ -10,15 +10,16 @@
     <meta name="theme-color" content="#f7f5f1" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)" />
     <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png" />
     <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
-    <link rel="apple-touch-icon" href="./assets/icon.svg" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="TripTap" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="TripTap Admin" />
     <meta property="og:description" content="ממשק הניהול של TripTap — מקומות, מסלולים, מלונות והזמנות." />
-    <meta property="og:image" content="./assets/hero.svg" />
+    <meta property="og:image" content="./assets/hero.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -214,19 +215,13 @@
         }
 
         .brand-mark {
-            display: grid;
-            place-items: center;
+            display: block;
             width: 38px;
             height: 38px;
             flex: 0 0 auto;
             border-radius: 11px;
-            background: linear-gradient(150deg, var(--brand), var(--brand-deep));
-            color: #2a1e08;
-            font-family: "Frank Ruhl Libre", serif;
-            font-weight: 700;
-            font-size: 19px;
-            line-height: 1;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), var(--shadow-sm);
+            object-fit: cover;
+            box-shadow: var(--shadow-sm);
         }
 
         .brand b {
@@ -435,6 +430,94 @@
             box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
         }
 
+        /* --------------------------------------------------------- visual hero */
+        .hero-visual-card {
+            position: relative;
+            border-radius: 22px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            box-shadow: var(--shadow-lg);
+            aspect-ratio: 16 / 11;
+            display: flex;
+            align-items: flex-end;
+            isolation: isolate;
+            transition: transform .35s cubic-bezier(.32, .72, 0, 1), box-shadow .35s cubic-bezier(.32, .72, 0, 1);
+        }
+
+        .hero-visual-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 28px -6px rgba(58, 46, 32, .14), 0 36px 72px -20px rgba(58, 46, 32, .28);
+        }
+
+        html[data-theme="dark"] .hero-visual-card:hover {
+            box-shadow: 0 12px 28px -6px rgba(0, 0, 0, .7), 0 36px 72px -20px rgba(0, 0, 0, .95);
+        }
+
+        .hero-visual-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform .7s cubic-bezier(.32, .72, 0, 1);
+        }
+
+        .hero-visual-card:hover .hero-visual-img {
+            transform: scale(1.03);
+        }
+
+        .hero-visual-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(14, 18, 22, .78) 0%, rgba(14, 18, 22, .24) 45%, transparent 100%);
+            pointer-events: none;
+        }
+
+        .hero-visual-caption {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            padding: clamp(14px, 2.5vw, 22px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .hero-caption-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .18);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, .28);
+            font-size: .8rem;
+            font-weight: 500;
+            color: #ffffff;
+            letter-spacing: -0.01em;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+        }
+
+        .hero-caption-pill-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 99px;
+            background: #4fbdb0;
+            box-shadow: 0 0 0 3px rgba(79, 189, 176, .35);
+        }
+
+        .hero-caption-tag {
+            font-size: .78rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, .92);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+        }
+
         /* --------------------------------------------------------- directory
            Replaces the generic 4-card feature row: it is real navigation. */
         .directory {
@@ -447,6 +530,7 @@
             backdrop-filter: blur(14px);
             box-shadow: var(--shadow-lg);
             overflow: hidden;
+            margin-top: clamp(36px, 6vw, 64px);
         }
 
         .directory-head {
@@ -454,35 +538,50 @@
             align-items: baseline;
             justify-content: space-between;
             gap: 12px;
-            padding: 16px 20px 14px;
+            padding: 18px 24px 16px;
             border-bottom: 1px solid var(--border);
         }
 
         .directory-head h2 {
             margin: 0;
-            font-size: .92rem;
+            font-size: .98rem;
             font-weight: 600;
             letter-spacing: -0.012em;
         }
 
         .directory-head span {
             color: var(--text-3);
-            font-size: .78rem;
+            font-size: .8rem;
+        }
+
+        .directory-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .row {
             display: grid;
-            grid-template-columns: 34px minmax(0, 1fr) auto;
+            grid-template-columns: 36px minmax(0, 1fr) auto;
             align-items: center;
             gap: 14px;
-            padding: 15px 20px;
+            padding: 16px 22px;
             text-decoration: none;
             border-bottom: 1px solid var(--border);
             transition: background .16s;
         }
 
-        .row:last-child {
-            border-bottom: 0;
+        .directory-grid .row:nth-child(odd) {
+            border-inline-end: 1px solid var(--border);
+        }
+
+        .directory-grid .row:last-child:nth-child(odd) {
+            grid-column: 1 / -1;
+            border-inline-end: none;
+        }
+
+        .directory-grid .row:nth-last-child(1),
+        .directory-grid .row:nth-last-child(2):nth-child(even) {
+            border-bottom: none;
         }
 
         .row:hover {
@@ -492,8 +591,8 @@
         .row-ico {
             display: grid;
             place-items: center;
-            width: 34px;
-            height: 34px;
+            width: 36px;
+            height: 36px;
             border-radius: 10px;
             background: var(--accent-weak);
             color: var(--accent);
@@ -501,8 +600,8 @@
         }
 
         .row-ico svg {
-            width: 17px;
-            height: 17px;
+            width: 18px;
+            height: 18px;
         }
 
         .row b {
@@ -594,6 +693,26 @@
             .lede {
                 max-width: 56ch;
             }
+
+            .directory-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .directory-grid .row:nth-child(odd) {
+                border-inline-end: none;
+            }
+
+            .directory-grid .row:last-child:nth-child(odd) {
+                grid-column: auto;
+            }
+
+            .directory-grid .row:nth-last-child(2) {
+                border-bottom: 1px solid var(--border);
+            }
+
+            .directory-grid .row:last-child {
+                border-bottom: none;
+            }
         }
 
         @media (max-width: 560px) {
@@ -655,7 +774,7 @@
     <div class="page">
         <header class="topbar">
             <a class="brand" href="./places.html?view=current">
-                <span class="brand-mark" aria-hidden="true">ט</span>
+                <img class="brand-mark" src="./assets/icon-192.png" alt="TripTap" width="38" height="38" />
                 <span>
                     <b>TripTap Admin</b>
                     <small>ניהול תוכן</small>
@@ -703,12 +822,26 @@
                 <p class="meta-line"><span class="dot" aria-hidden="true"></span> גישה דרך חשבון Google מורשה בלבד</p>
             </section>
 
-            <nav class="directory reveal" aria-label="מדורי הניהול" style="animation-delay:.16s">
-                <div class="directory-head">
-                    <h2>מה נמצא בפנים</h2>
-                    <span>7 מדורים</span>
+            <div class="hero-visual-card reveal" style="animation-delay:.14s">
+                <img class="hero-visual-img" src="./assets/hero.jpg" alt="נוף יעדי תיירות מרהיבים של TripTap" width="1600" height="900" loading="eager" decoding="async" />
+                <div class="hero-visual-overlay"></div>
+                <div class="hero-visual-caption">
+                    <div class="hero-caption-pill">
+                        <span class="hero-caption-pill-dot" aria-hidden="true"></span>
+                        <span>יעדים ומסלולים מסביב לעולם</span>
+                    </div>
+                    <span class="hero-caption-tag">TripTap Experiences</span>
                 </div>
+            </div>
+        </main>
 
+        <nav class="directory reveal" aria-label="מדורי הניהול" style="animation-delay:.22s">
+            <div class="directory-head">
+                <h2>מה נמצא בפנים</h2>
+                <span>7 מדורי ניהול</span>
+            </div>
+
+            <div class="directory-grid">
                 <a class="row" href="./places.html?view=current">
                     <span class="row-ico" aria-hidden="true">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
@@ -849,8 +982,8 @@
                         </svg>
                     </span>
                 </a>
-            </nav>
-        </main>
+            </div>
+        </nav>
 
         <footer>
             <span>TripTap · ממשק ניהול פנימי</span>
@@ -866,8 +999,14 @@
             const btn = document.getElementById("themeBtn");
             const sun = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>';
             const moon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.5 8.5 0 1 0 10.2 10.2Z"/></svg>';
+            function syncMeta(t) {
+                const c = t === "dark" ? "#131110" : "#f7f5f1";
+                document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute("content", c));
+            }
             function paint() {
-                btn.innerHTML = document.documentElement.dataset.theme === "dark" ? sun : moon;
+                const current = document.documentElement.dataset.theme;
+                btn.innerHTML = current === "dark" ? sun : moon;
+                syncMeta(current);
             }
             btn.addEventListener("click", () => {
                 const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
