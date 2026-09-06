@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>TripTap Admin — Design Gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&family=Heebo:wght@400;500;600;700;800&family=Rubik:wght@400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <script>(function () { try { var t = new URL(location.href).searchParams.get("theme") || localStorage.getItem("triptap-theme") || "light"; document.documentElement.dataset.theme = t; } catch (e) { } })();</script>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./design.css" />
+</head>
+
+<body>
+    <div id="app"></div>
+    <script src="https://unpkg.com/lucide@1.17.0/dist/umd/lucide.min.js" defer></script>
+    <script type="module">
+        import { createAdminShell } from "./shared.js";
+
+        const content = `
+        <div class="workflow-strip">
+          <article class="workflow-card">
+            <span class="panel-icon"><i data-lucide="map-pin-plus"></i></span>
+            <strong>1,284 מקומות</strong>
+            <span>פעילים בספרייה, 37 ממתינים לאישור</span>
+          </article>
+          <article class="workflow-card">
+            <span class="panel-icon"><i data-lucide="route"></i></span>
+            <strong>96 מסלולים</strong>
+            <span>עודכן לאחרונה ב-14 בפברואר</span>
+          </article>
+          <article class="workflow-card">
+            <span class="panel-icon"><i data-lucide="hotel"></i></span>
+            <strong>412 מלונות</strong>
+            <span>8 קישורי הזמנה דורשים בדיקה</span>
+          </article>
+        </div>
+
+        <div class="tool-tabs">
+          <button class="tool-tab is-active" type="button">מצב נוכחי</button>
+          <button class="tool-tab" type="button">הוספת מקומות</button>
+          <button class="tool-tab" type="button">אישור מקומות</button>
+        </div>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <span class="panel-icon"><i data-lucide="search"></i></span>
+            <div>
+              <h2>חיפוש מקום</h2>
+              <p class="micro-note">הקלידו שם או כתובת כדי לסנן את הספרייה</p>
+            </div>
+          </div>
+          <div class="field-block">
+            <label for="q">שם המקום</label>
+            <input id="q" type="search" placeholder="לדוגמה: שוק מחנה יהודה" />
+            <p class="micro-note">החיפוש מתעדכן תוך כדי הקלדה.</p>
+          </div>
+          <div class="field-block">
+            <label for="notes">הערות פנימיות</label>
+            <textarea id="notes" rows="3" placeholder="הערות שיישמרו רק בממשק הניהול"></textarea>
+          </div>
+          <div class="action-row">
+            <button class="primary-action" type="button"><i data-lucide="check"></i><span>שמירת שינויים</span></button>
+            <button class="ghost-action" type="button"><i data-lucide="rotate-ccw"></i><span>איפוס</span></button>
+            <button class="danger-action" type="button"><i data-lucide="trash-2"></i><span>מחיקה</span></button>
+          </div>
+        </section>
+
+        <div class="result-section">
+          <h2>תוצאות <span class="count-pill">24</span></h2>
+        </div>
+
+        <div class="cards-grid">
+          ${[
+            { t: "שוק מחנה יהודה", c: "ירושלים", img: "https://picsum.photos/seed/market/640/420", tag: "אוכל" },
+            { t: "מצפה רמון", c: "הנגב", img: "https://picsum.photos/seed/crater/640/420", tag: "טבע" },
+            { t: "נמל יפו העתיק", c: "תל אביב-יפו", img: "https://picsum.photos/seed/jaffa/640/420", tag: "היסטוריה" },
+          ].map((p) => `
+            <article class="place-card">
+              <div class="place-image"><img src="${p.img}" alt="${p.t}" /></div>
+              <div class="place-body">
+                <strong>${p.t}</strong>
+                <div class="place-card-tags">
+                  <span class="info-chip">${p.tag}</span>
+                  <span class="info-chip">${p.c}</span>
+                  <span class="hours-chip">פתוח עכשיו</span>
+                </div>
+                <p class="place-meta">שעות פתיחה: ראשון–חמישי 08:00–19:00, שישי 08:00–14:00</p>
+                <div class="card-actions">
+                  <button class="small-action" type="button"><i data-lucide="pencil"></i><span>עריכה</span></button>
+                  <button class="small-action" type="button"><i data-lucide="image"></i><span>תמונה</span></button>
+                  <button class="small-action danger-lite" type="button"><i data-lucide="trash-2"></i><span>מחיקה</span></button>
+                </div>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+        `;
+
+        document.getElementById("app").innerHTML = createAdminShell({
+            activeKey: "places",
+            activeSubKey: "current",
+            title: "מקומות",
+            subtitle: "ניהול הספרייה: הוספה, אישור, תמונות ושעות פתיחה.",
+            requireAuth: false,
+            actions: `<div class="split-actions">
+                <button class="ghost-action" type="button"><i data-lucide="download"></i><span>ייצוא</span></button>
+                <button class="primary-action" type="button"><i data-lucide="plus"></i><span>מקום חדש</span></button>
+              </div>`,
+            content,
+        });
+
+        function paint() { if (window.lucide) window.lucide.createIcons(); }
+        if (window.lucide) paint(); else window.addEventListener("DOMContentLoaded", paint);
+        window.addEventListener("load", paint);
+    </script>
+</body>
+
+</html>
