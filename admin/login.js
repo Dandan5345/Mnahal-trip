@@ -3,6 +3,7 @@ import { ADMIN_EMAIL, isAdminUser, resolveNextPage } from "./shared.js";
 
 const firebase = tripTapAdminFirebase;
 const $ = (id) => document.getElementById(id);
+let signInPending = false;
 
 async function init() {
     if (window.lucide) window.lucide.createIcons();
@@ -19,6 +20,7 @@ async function init() {
         if (!isAdminUser(user)) {
             setStatus(`אין הרשאת אדמין למייל ${user.email || user.uid}. רק ${ADMIN_EMAIL} מורשה להיכנס.`, true);
             await firebase.authFns.signOut(firebase.auth);
+            finishSignInAttempt();
             return;
         }
         window.location.replace(resolveNextPage());
@@ -34,16 +36,74 @@ async function signInWithGoogle() {
         setStatus("התחברות עם Google לא זמינה מתוך file://. צריך לפתוח את האדמין דרך שרת HTTP/HTTPS שמוגדר כ-Authorized domain ב-Firebase.", true);
         return;
     }
+    if (signInPending) return;
+
     const provider = new firebase.authFns.GoogleAuthProvider();
+    signInPending = true;
+    setSignInButtonBusy(true);
+
     try {
+        if (isMobileAuthEnvironment()) {
+            await startGoogleRedirect(provider);
+            return;
+        }
+
         setStatus("פותח התחברות עם Google...");
         await firebase.authFns.signInWithPopup(firebase.auth, provider);
     } catch (error) {
-        if (error.code === "auth/popup-blocked" || error.code === "auth/cancelled-popup-request") {
-            await firebase.authFns.signInWithRedirect(firebase.auth, provider);
-            return;
+        if (shouldRetryPopupWithRedirect(error)) {
+            try {
+                await startGoogleRedirect(provider);
+                return;
+            } catch (redirectError) {
+                showSignInError(redirectError);
+                return;
+            }
         }
-        setStatus(`התחברות Google נכשלה: ${error.message}`, true);
+        showSignInError(error);
+    }
+}
+
+async function startGoogleRedirect(provider) {
+    setStatus("מעביר אותך ל-Google באותו חלון...");
+    await firebase.authFns.signInWithRedirect(firebase.auth, provider);
+}
+
+function isMobileAuthEnvironment() {
+    const userAgent = navigator.userAgent || "";
+    const mobileClientHint = navigator.userAgentData?.mobile === true;
+    const mobileUserAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+    // iPadOS may identify itself as macOS when "Request Desktop Website" is enabled.
+    const iPadDesktopMode = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    return mobileClientHint || mobileUserAgent || iPadDesktopMode;
+}
+
+function shouldRetryPopupWithRedirect(error) {
+    const code = error?.code || "";
+    return code === "auth/popup-blocked"
+        || code === "auth/cancelled-popup-request"
+        || code === "auth/operation-not-supported-in-this-environment"
+        || (code === "auth/popup-closed-by-user" && isMobileAuthEnvironment());
+}
+
+function showSignInError(error) {
+    setStatus(`התחברות Google נכשלה: ${error?.message || "שגיאה לא ידועה"}`, true);
+    finishSignInAttempt();
+}
+
+function finishSignInAttempt() {
+    signInPending = false;
+    setSignInButtonBusy(false);
+}
+
+function setSignInButtonBusy(isBusy) {
+    const button = $("googleSignInButton");
+    if (!button) return;
+    button.disabled = isBusy;
+    if (isBusy) {
+        button.setAttribute("aria-busy", "true");
+    } else {
+        button.removeAttribute("aria-busy");
     }
 }
 
